@@ -56,6 +56,15 @@ class WandBCallback(Callback):
     The W&B group to use.
     """
 
+    resume: Optional[str] = "allow"
+    """
+    Whether to resume a W&B run. Can be one of:
+    - ``"allow"``: resume the run if it exists, otherwise create a new run.
+    - ``"must"``: resume the run if it exists, otherwise raise an error.
+    - ``"never"``: always create a new run, never resume.
+    Defaults to ``"allow"``.
+    """
+
     tags: Optional[List[str]] = None
     """
     Tags to assign the run.
@@ -112,6 +121,7 @@ class WandBCallback(Callback):
 
             wandb_dir = Path(self.trainer.save_folder) / "wandb"
             wandb_dir.mkdir(parents=True, exist_ok=True)
+            # import pdb;pdb.set_trace()
             self.wandb.init(
                 dir=wandb_dir,
                 project=self.project,
@@ -120,6 +130,8 @@ class WandBCallback(Callback):
                 name=self.name,
                 tags=self.tags,
                 notes=self.notes,
+                # resume=self.resume,
+                # id=self.name,  # type: ignore
                 config=self.config,
             )
             self._run_path = self.run.path  # type: ignore
