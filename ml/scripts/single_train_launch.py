@@ -1,12 +1,11 @@
 """
-Official training script for OLMo-2-0325-32B, meant to be launched with torchrun.
 """
 
 import sys
 import os
 import logging
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, cast
 
 import torch
@@ -50,16 +49,22 @@ from olmo_core.train.train_module import (
 )
 from olmo_core.utils import seed_all
 
-SEQUENCE_LENGTH = 128
+from constants import (
+    DEFAULT_SAVE_PATH, 
+    DEFAULT_DIR_PATH, 
+    DATA_WORK_DIR,
+    VALID_DATA_DIR,
+    MODEL_CONFIG_LOOKUP, 
+    TOKENIZER_LOOKUP, 
+    DATAMIX_LOOKUP,
+)
 
 # This will read stream data from the public endpoints by default, but that might be a lot slower
 # than reading data locally.
-DATA_ROOT = "https://olmo-data.org/"
 # WORK_DIR = "/gscratch/zlab/snehark/OLMo-core/data/"
-# SAVE_ROOT = "/gscratch/zlab/snehark/OLMo-core/runs"  # NOTE: change this to what you want
-WORK_DIR = os.environ.get("DATA_FOLDER")
-SAVE_ROOT = os.environ.get("OLMO_CORE_PATH")
 
+WANDB_ENTITY = 'ml-moe'
+WANDB_PROJECT = 'moe'
 
 @dataclass
 class ExperimentConfig(Config):
@@ -68,77 +73,97 @@ class ExperimentConfig(Config):
     data_loader: NumpyDataLoaderConfig
     train_module: TransformerTrainModuleConfig
     trainer: TrainerConfig
-    init_seed: int = 12536
+    init_seed: int
 
 
-def build_config(run_name: str, overrides: List[str]) -> ExperimentConfig:
-    tokenizer_config = TokenizerConfig.gpt_neox_olmo_dolma_v1_5()
+def build_config(
+        run_name: str, 
+        num_gpus: int = torch.cuda.device_count(),
+        tokenizer_name: str = "dolma2", 
+        model_config_name: str = "olmo2_100M_moe_32_16",
+        train_datamix_name: str = "OLMoE_mix_0824",
+        valid_datamix_name: str = "v3_small_ppl_validation",
+        data_root: str = "https://olmo-data.org/",
+        save_root: str = DEFAULT_SAVE_PATH,
+        valid_data_dir: str = VALID_DATA_DIR,
+        data_work_dir: str = DATA_WORK_DIR,
+        num_data_workers: int = 2,
+        train_tokens: int = 200_000_000,
+        warmup_steps: int = 2000,
+        per_gpu_batch_size: int = 1,
+        sequence_length: int = 2048,
+        save_interval: int = 2, #1000
+        ephemeral_save_interval: int = 1, #200
+        eval_interval: int = 10000,
+        metrics_collect_interval: int = 10,
+        lr: float = 4e-4,
+        embedding_weight_decay: float = 0.1,
+        weight_decay: float = 0.0,
+        adam_betas: tuple[float, float] = (0.9, 0.95),
+        z_loss_multiplier: float = 1e-5,
+        max_grad_norm: float = 1.0,
+        init_seed: int = 12536,
+        overrides: List[str] = [],
+    ) -> ExperimentConfig:
+    tokenizer_config = TOKENIZER_LOOKUP[tokenizer_name]()
 
-    model_config = TransformerConfig.small_hybrid_moe(
+    model_config = MODEL_CONFIG_LOOKUP[model_config_name](
         vocab_size=tokenizer_config.padded_vocab_size(),
     )
 
     dataset_config = NumpyDatasetConfig.from_data_mix(
-        DataMix.OLMoE_test,
+        DATAMIX_LOOKUP[train_datamix_name],
         tokenizer=tokenizer_config,
-        mix_base_dir=DATA_ROOT,
-        sequence_length=SEQUENCE_LENGTH,
-        max_target_sequence_length=max(128, SEQUENCE_LENGTH),
-        work_dir=WORK_DIR,
+        mix_base_dir=data_root,
+        sequence_length=sequence_length,
+        # max_target_sequence_length=max(128, SEQUENCE_LENGTH),
+        work_dir=data_work_dir,
     )
 
     data_loader_config = NumpyDataLoaderConfig(
-        global_batch_size=2 * SEQUENCE_LENGTH,
+        global_batch_size=num_gpus * per_gpu_batch_size * sequence_length,
         seed=34521,
-        num_workers=2,
+        num_workers=num_data_workers,
     )
 
     train_module_config = TransformerTrainModuleConfig(
-        rank_microbatch_size=128,
+        rank_microbatch_size=per_gpu_batch_size * sequence_length,
         max_sequence_length=dataset_config.effective_sequence_length,
         optim=AdamWConfig(
-            lr=4e-4,
-            weight_decay=0.1,
-            betas=(0.9, 0.95),
+            lr=lr,
+            weight_decay=weight_decay,
+            betas=adam_betas,
             group_overrides=[
-                OptimGroupOverride(params=["embeddings.weight"], opts=dict(weight_decay=0.0))
+                OptimGroupOverride(params=["embeddings.weight"], opts=dict(weight_decay=embedding_weight_decay))
             ],
             fused=True,
         ),
-        scheduler=CosWithWarmup(warmup_steps=2000),
+        scheduler=CosWithWarmup(warmup_steps=warmup_steps),
         compile_model=True,
         dp_config=TransformerDataParallelConfig(
-            name=DataParallelType.fsdp,  # Updated from small-moe.py
+            name=DataParallelType.fsdp,  
             param_dtype=DType.bfloat16,
             reduce_dtype=DType.float32,
             wrapping_strategy=TransformerDataParallelWrappingStrategy.full,  # Added from small-moe.py
         ),
-        z_loss_multiplier=1e-5,
-        max_grad_norm=1.0,
+        z_loss_multiplier=z_loss_multiplier,
+        max_grad_norm=max_grad_norm,
     )
-
-    # If you have 1024 GPUs, you can run slightly faster with a different config.
-    if get_world_size() >= 1024:
-        train_module_config.rank_microbatch_size //= 2
-        train_module_config.ac_config = TransformerActivationCheckpointingConfig(
-            mode=TransformerActivationCheckpointingMode.selected_modules,
-            modules=["blocks.*.feed_forward"],
-        )
 
     trainer_config = (
         TrainerConfig(
-            save_folder=f"{SAVE_ROOT}/{run_name}",
+            save_folder=f"{save_root}/{run_name}",
             save_overwrite=True,
-            metrics_collect_interval=10,
+            metrics_collect_interval=metrics_collect_interval,
             cancel_check_interval=1,  # Updated from small-moe.py
-            max_duration=Duration.tokens(int(6.5e12)),
+            max_duration=Duration.tokens(train_tokens),
         )
         .with_callback("gpu_monitor", GPUMemoryMonitorCallback())
         .with_callback(
             "checkpointer",
             CheckpointerCallback(
-                save_interval=1000,
-                ephemeral_save_interval=200,
+                save_interval=save_interval,
+                ephemeral_save_interval=ephemeral_save_interval,
                 save_async=True,
             ),
         )
@@ -146,8 +171,6 @@ def build_config(run_name: str, overrides: List[str]) -> ExperimentConfig:
             "comet",
             CometCallback(
                 name=run_name,
-                # workspace="ai2",  # Added from small-moe.py
-                # project="OLMo-core-1B",  # Added from small-moe.py
                 cancel_check_interval=10,
                 enabled=False,  # NOTE: change to true to enable
             ),
@@ -156,8 +179,8 @@ def build_config(run_name: str, overrides: List[str]) -> ExperimentConfig:
             "wandb",
             WandBCallback(
                 name=run_name,
-                # entity="ai2-llm",  # Added from small-moe.py
-                # project="OLMo-core-1B",  # Added from small-moe.py
+                entity=WANDB_ENTITY,
+                project=WANDB_PROJECT,
                 cancel_check_interval=10,
                 enabled=False,  # NOTE: change to true to enable
             ),
@@ -167,92 +190,29 @@ def build_config(run_name: str, overrides: List[str]) -> ExperimentConfig:
             "lm_evaluator",
             LMEvaluatorCallbackConfig(
                 eval_dataset=NumpyDatasetConfig.from_data_mix(
-                    DataMix.v3_small_ppl_validation,
+                    DATAMIX_LOOKUP[valid_datamix_name],
                     name=NumpyDatasetType.padded_fsl,
-                    mix_base_dir=WORK_DIR,
+                    mix_base_dir=valid_data_dir,
                     sequence_length=dataset_config.effective_sequence_length,
                     tokenizer=tokenizer_config,
-                    work_dir=WORK_DIR,
+                    work_dir=data_work_dir,
                 ),
-                eval_interval=10,
+                eval_interval=eval_interval,
             ),
         )
         .with_callback(
             "downstream_evaluator",
             DownstreamEvaluatorCallbackConfig(
                 tasks=[
-                    # MMLU for backwards compatibility
-                    # "mmlu_stem_mc_5shot",
-                    # "mmlu_humanities_mc_5shot",
-                    # "mmlu_social_sciences_mc_5shot",
-                    # "mmlu_other_mc_5shot",
-                    # MMLU test
                     "mmlu_stem_mc_5shot_test",
                     "mmlu_humanities_mc_5shot_test",
                     "mmlu_social_sciences_mc_5shot_test",
                     "mmlu_other_mc_5shot_test",
-                    ## Core 12 tasks for backwards compatibility
-                    # "arc_challenge",
-                    # "arc_easy",
-                    # "basic_arithmetic",
                     "boolq",
-                    # "commonsense_qa",
-                    # "copa",
                     "hellaswag",
-                    # "openbook_qa",
-                    # "piqa",
-                    # "sciq",
-                    # "social_iqa",
-                    # "winogrande",
-                    ## Core 12 tasks 5-shot
-                    # "arc_challenge_rc_5shot",
-                    # "arc_easy_rc_5shot",
-                    ## "basic_arithmetic_rc_5shot",  # doesn't exist
-                    ## "boolq_rc_5shot",  # we don't like it
-                    # "csqa_rc_5shot",
-                    ## "copa_rc_5shot",  # doesn't exist
-                    # "hellaswag_rc_5shot",
-                    # "openbookqa_rc_5shot",
-                    # "piqa_rc_5shot",
-                    ## "sciq_rc_5shot",  # doesn't exist
-                    # "socialiqa_rc_5shot",
-                    # "winogrande_rc_5shot",
-                    ## New in-loop evals
-                    # "arc_challenge_val_rc_5shot",
-                    # "arc_challenge_val_mc_5shot",
-                    # "arc_challenge_test_rc_5shot",
-                    # # "arc_challenge_test_mc_5shot",
-                    # # "arc_easy_val_rc_5shot",
-                    # # "arc_easy_val_mc_5shot",
-                    # "arc_easy_test_rc_5shot",
-                    # # "arc_easy_test_mc_5shot",
-                    # # "boolq_val_rc_5shot",
-                    # # "boolq_val_mc_5shot",
-                    # "csqa_val_rc_5shot",
-                    # # "csqa_val_mc_5shot",
-                    # "hellaswag_val_rc_5shot",
-                    # # "hellaswag_val_mc_5shot",
-                    # # "openbookqa_val_rc_5shot",
-                    # # "openbookqa_val_mc_5shot",
-                    # "openbookqa_test_rc_5shot",
-                    # # "openbookqa_test_mc_5shot",
-                    # "piqa_val_rc_5shot",
-                    # # "piqa_val_mc_5shot",
-                    # "socialiqa_val_rc_5shot",
-                    # "socialiqa_val_mc_5shot",
-                    # "winogrande_val_rc_5shot",
-                    # "winogrande_val_mc_5shot",
-                    # "mmlu_stem_val_rc_5shot",
-                    # "mmlu_stem_val_mc_5shot",
-                    # "mmlu_humanities_val_rc_5shot",
-                    # "mmlu_humanities_val_mc_5shot",
-                    # "mmlu_social_sciences_val_rc_5shot",
-                    # "mmlu_social_sciences_val_mc_5shot",
-                    # "mmlu_other_val_rc_5shot",
-                    # "mmlu_other_val_mc_5shot",
                 ],
                 tokenizer=tokenizer_config,
-                eval_interval=10,
+                eval_interval=eval_interval,
             ),
         )
     )
@@ -263,10 +223,14 @@ def build_config(run_name: str, overrides: List[str]) -> ExperimentConfig:
         data_loader=data_loader_config,
         train_module=train_module_config,
         trainer=trainer_config,
+        init_seed=init_seed,
     ).merge(overrides)
 
 
-def main(run_name: str, overrides: List[str]):
+def main(
+    run_name: str, 
+    # overrides: List[str]
+) -> None:
     # Set up logging
     logging.basicConfig(
         level=logging.INFO,
@@ -285,7 +249,8 @@ def main(run_name: str, overrides: List[str]):
             logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
             logger.info(f"CUDA device name: {torch.cuda.get_device_name()}")
         
-        config = build_config(run_name, overrides)
+        # config = build_config(run_name, overrides)
+        config = build_config(run_name)
         logger.info("Config built successfully")
 
         # Set RNG states on all devices.
@@ -330,9 +295,11 @@ if __name__ == "__main__":
 
     run_name, *overrides = sys.argv[1:]
 
+    print(overrides)
     prepare_training_environment()
     try:
-        main(run_name, overrides=overrides)
+        # main(run_name, overrides=overrides)
+        main(run_name)
     except Exception as e:
         print(f"Error in main process: {str(e)}")
         print("Traceback:")
