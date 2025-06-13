@@ -3,16 +3,19 @@ import os
 from datetime import datetime
 from copy import copy
 from slurm_job import run_grid
-from constants import PROJECT_SPECS_DICT, HARDWARE_SPECS_DICT
+from constants import PROJECT_SPECS, HARDWARE_SPECS_DICT
+
 
 SWEEP_NAME_DEFAULT = ''
 project = 'moe'
-MODELS = ["25m"]
+MODELS = [
+    'olmo2_100M_moe',
+]
 
 def main(
     sweep_name=SWEEP_NAME_DEFAULT,
     add_time_to_name='front',
-    add_model_to_name='end',
+    add_model_to_name=None,
     debug=False, 
     dry_mode=False,
     account=None, 
@@ -25,28 +28,49 @@ def main(
 
     DEBUG_MODE = debug
     DRY_MODE = dry_mode
-    PROJECT_SPECS = PROJECT_SPECS_DICT[project]
     SWEEP_NAME = sweep_name
     if add_time_to_name == 'front':
         time_str = str(datetime.now().strftime('%Y_%m_%d-%H_%M_%S'))
-        SWEEP_NAME = f"{time_str}_{SWEEP_NAME}"
+        SWEEP_NAME = f"{time_str}_{SWEEP_NAME}" if SWEEP_NAME else time_str
 
     for model in MODELS:
         model_sweep_name = f"{SWEEP_NAME}_{model}" if add_model_to_name == 'end' else SWEEP_NAME
-        SPECS = copy(PROJECT_SPECS["default"])
-        SPECS.update(PROJECT_SPECS[model])
+        SPECS = copy(PROJECT_SPECS)
         SPECS.update(HARDWARE_SPECS_DICT[model][partition])
         grids = {
             model_sweep_name: {
-                'train_module.optim.lr': [1e-4, 2e-4, 3e-4],
-                'train_module.moe_num_experts': [1, 2, 4, 8],
-                'model.feed_forward_moe.num_experts': [1, 2, 4, 8],
+                "main_grid": {
+                    "model_name": [model],
+                    'train_module': {
+                        'optim': {
+                            'lr': [1e-4, 2e-4, 3e-4],
+                        },
+                        "scheduler": {
+                            "units": ["steps"],
+                            "warmup": [2000],
+                        }
+                    },
+                    "trainer": {
+                        "max_duration": {
+                            "value": [200000000],
+                            "unit": ["tokens"],
+                        },
+                    },
+                },
+                "subgrids": {
+                    # "4x1c2": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["2"]},
+                    # "8x1c2": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["2"]},
+                    # "16x1c2": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["2"]},
+                    "4,8x1,0.5c1,2": {"moe_num_experts_list": ["4,8"], "moe_hidden_multipliers_list": ["1,0.5"], "moe_router_top_ks_list": ["1,2"]},
+                }
             },
         }
 
         for sweep_name, grid in grids.items():
+            # grid.update(SPECS)
             run_grid(
-                grid,
+                grid.get("main_grid", {}),
+                subgrids=grid.get("subgrids", {}),
                 sweep_name=sweep_name,
                 name_keys=SPECS.get("NAME_KEYS", []),
                 user=os.environ['USER'],
@@ -62,8 +86,8 @@ def main(
                 include_job_id=False,
                 hide_keys={},
                 hashname=False,
-                saveroot=f"{SPECS['MODEL_DIR']}/{SWEEP_NAME}",
-                logroot=f"{SPECS['MODEL_DIR']}/{SWEEP_NAME}",
+                saveroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{SWEEP_NAME}",
+                logroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{SWEEP_NAME}",
                 mem_gb=SPECS["MEM_GB"],
                 requeue=True,
                 data_parallel=False,
@@ -80,13 +104,9 @@ def main(
                 add_name='end',
                 dependencies=[],
                 repo_name="olmoe",
-                wandb_project=SPECS.get("WANDB_PROJECT"),
-                wandb_entity=SPECS.get("WANDB_ENTITY"),
                 conda_env_name=SPECS.get("CONDA_ENV_NAME"),
                 include_jobs=include_jobs,
                 restart=restart,
-                default_config_file=SPECS.get("DEFAULT_CONFIG_FILE"),
-                model_config_file=SPECS.get("MODEL_CONFIG_FILE")
                 # append_to_sbatch_str=None,
             )
 

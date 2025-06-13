@@ -62,7 +62,7 @@ class MoEConfig(ModuleConfig):
     The name of the implementation.
     """
     num_experts_list: List[int] = field(default_factory=lambda: [1])
-    hidden_sizes_list: List[int] = field(default_factory=lambda: [256])
+    hidden_sizes_list: List[int] = field(default_factory=lambda: [1])
     capacity_factor: Optional[float] = None
     routers_list: List[MoERouterConfig] = field(default_factory=lambda: [MoERouterConfig])
     shared_mlp: Optional[FeedForwardConfig] = None

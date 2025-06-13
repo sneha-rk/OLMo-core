@@ -1,6 +1,7 @@
 """
 """
 
+import argparse
 import sys
 import os
 import logging
@@ -50,21 +51,14 @@ from olmo_core.train.train_module import (
 from olmo_core.utils import seed_all
 
 from constants import (
-    DEFAULT_SAVE_PATH, 
-    DEFAULT_DIR_PATH, 
-    DATA_WORK_DIR,
-    VALID_DATA_DIR,
     MODEL_CONFIG_LOOKUP, 
     TOKENIZER_LOOKUP, 
     DATAMIX_LOOKUP,
+    PROJECT_SPECS,
 )
 
 # This will read stream data from the public endpoints by default, but that might be a lot slower
 # than reading data locally.
-# WORK_DIR = "/gscratch/zlab/snehark/OLMo-core/data/"
-
-WANDB_ENTITY = 'ml-moe'
-WANDB_PROJECT = 'moe'
 
 @dataclass
 class ExperimentConfig(Config):
@@ -80,13 +74,15 @@ def build_config(
         run_name: str, 
         num_gpus: int = torch.cuda.device_count(),
         tokenizer_name: str = "dolma2", 
-        model_config_name: str = "olmo2_100M_moe_32_16",
+        model_name: str = "olmo2_100M_moe_32_16",
         train_datamix_name: str = "OLMoE_mix_0824",
         valid_datamix_name: str = "v3_small_ppl_validation",
-        data_root: str = "https://olmo-data.org/",
-        save_root: str = DEFAULT_SAVE_PATH,
-        valid_data_dir: str = VALID_DATA_DIR,
-        data_work_dir: str = DATA_WORK_DIR,
+        data_root: str = PROJECT_SPECS['DATAROOT'],
+        save_root: str = PROJECT_SPECS['DEFAULT_SAVE_PATH'],
+        valid_data_dir: str = PROJECT_SPECS['VALID_DATA_DIR'],
+        data_work_dir: str = PROJECT_SPECS['DATA_WORK_DIR'],
+        wandb_entity: str = PROJECT_SPECS['WANDB_ENTITY'],
+        wandb_project: str = PROJECT_SPECS['WANDB_PROJECT'],
         num_data_workers: int = 2,
         train_tokens: int = 200_000_000,
         warmup_steps: int = 2000,
@@ -101,14 +97,20 @@ def build_config(
         weight_decay: float = 0.0,
         adam_betas: tuple[float, float] = (0.9, 0.95),
         z_loss_multiplier: float = 1e-5,
+        moe_num_experts_list: List[int] = [32, 64],
+        moe_hidden_multipliers_list: List[int] = [1024, 2048],
+        moe_router_top_ks_list: List[int] = [4, 8],
         max_grad_norm: float = 1.0,
         init_seed: int = 12536,
         overrides: List[str] = [],
     ) -> ExperimentConfig:
     tokenizer_config = TOKENIZER_LOOKUP[tokenizer_name]()
 
-    model_config = MODEL_CONFIG_LOOKUP[model_config_name](
+    model_config = MODEL_CONFIG_LOOKUP[model_name](
         vocab_size=tokenizer_config.padded_vocab_size(),
+        num_experts_list=moe_num_experts_list,
+        hidden_multipliers_list=moe_hidden_multipliers_list,
+        router_top_ks_list=moe_router_top_ks_list,
     )
 
     dataset_config = NumpyDatasetConfig.from_data_mix(
@@ -116,7 +118,7 @@ def build_config(
         tokenizer=tokenizer_config,
         mix_base_dir=data_root,
         sequence_length=sequence_length,
-        # max_target_sequence_length=max(128, SEQUENCE_LENGTH),
+        max_target_sequence_length=max(4096, sequence_length),
         work_dir=data_work_dir,
     )
 
@@ -179,10 +181,10 @@ def build_config(
             "wandb",
             WandBCallback(
                 name=run_name,
-                entity=WANDB_ENTITY,
-                project=WANDB_PROJECT,
+                entity=wandb_entity,
+                project=wandb_project,
                 cancel_check_interval=10,
-                enabled=False,  # NOTE: change to true to enable
+                enabled=True,  # NOTE: change to true to enable
             ),
         )
         .with_callback("config_saver", ConfigSaverCallback())
@@ -228,8 +230,8 @@ def build_config(
 
 
 def main(
-    run_name: str, 
-    # overrides: List[str]
+    args: argparse.Namespace,
+    overrides: List[str]
 ) -> None:
     # Set up logging
     logging.basicConfig(
@@ -249,8 +251,22 @@ def main(
             logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
             logger.info(f"CUDA device name: {torch.cuda.get_device_name()}")
         
-        # config = build_config(run_name, overrides)
-        config = build_config(run_name)
+        config = build_config(
+            args.run_name, 
+            num_gpus=args.num_gpus,
+            tokenizer_name=args.tokenizer_name,
+            model_name=args.model_name,
+            train_datamix_name=args.train_datamix_name,
+            valid_datamix_name=args.valid_datamix_name,
+            data_root=args.data_root,
+            save_root=args.save_root,
+            valid_data_dir=args.valid_data_dir,
+            data_work_dir=args.data_work_dir,
+            moe_hidden_multipliers_list=[float(v) for v in args.moe_hidden_multipliers_list.split(',')], 
+            moe_num_experts_list=[int(v) for v in args.moe_num_experts_list.split(',')], 
+            moe_router_top_ks_list=[int(v) for v in args.moe_router_top_ks_list.split(',')], 
+            overrides=overrides)
+        # config = build_config(run_name)
         logger.info("Config built successfully")
 
         # Set RNG states on all devices.
@@ -289,17 +305,34 @@ def main(
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(f"Usage: torchrun [OPTS..] {sys.argv[0]} run_name [OVERRIDES...]")
-        sys.exit(1)
+    # if len(sys.argv) < 2:
+    #     print(f"Usage: torchrun [OPTS..] {sys.argv[0]} run_name [OVERRIDES...]")
+    #     sys.exit(1)
 
-    run_name, *overrides = sys.argv[1:]
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("run_name", type=str, help="Name of the run")
+    parser.add_argument("num_gpus", type=int, default=torch.cuda.device_count(), nargs='?', help="Number of GPUs to use")
+    parser.add_argument("--tokenizer_name", type=str, default="dolma2", help="Name of the tokenizer to use")
+    parser.add_argument("--model_name", type=str, default="olmo2_100M_moe_32_16", help="Name of the model configuration to use")
+    parser.add_argument("--train_datamix_name", type=str, default="OLMoE_mix_0824", help="Name of the training data mix")
+    parser.add_argument("--valid_datamix_name", type=str, default="v3_small_ppl_validation", help="Name of the validation data mix")
+    parser.add_argument("--data_root", type=str, default="https://olmo-data.org/", help="Root URL for the data")
+    parser.add_argument("--save_root", type=str, default=PROJECT_SPECS['DEFAULT_SAVE_PATH'], help="Root directory for saving the model")
+    parser.add_argument("--valid_data_dir", type=str, default=PROJECT_SPECS['VALID_DATA_DIR'], help="Directory for validation data")
+    parser.add_argument("--data_work_dir", type=str, default=PROJECT_SPECS['DATA_WORK_DIR'], help="Working directory for data")
+    parser.add_argument("--moe_num_experts_list", type=str, default="32,64", help="List of number of experts for MoE")
+    parser.add_argument("--moe_hidden_multipliers_list", type=str, default="1024,2048", help="List of hidden sizes multiplers for MoE")
+    parser.add_argument("--moe_router_top_ks_list", type=str, default="4,8", help="List of router top-k values for MoE")
+    args, overrides = parser.parse_known_args()
+
+    # run_name, *overrides = sys.argv[1:]
 
     print(overrides)
     prepare_training_environment()
     try:
-        # main(run_name, overrides=overrides)
-        main(run_name)
+        main(args, overrides=overrides)
+        # main(run_name)
     except Exception as e:
         print(f"Error in main process: {str(e)}")
         print("Traceback:")

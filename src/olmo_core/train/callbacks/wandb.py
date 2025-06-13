@@ -134,7 +134,6 @@ class WandBCallback(Callback):
             self.wandb
             wandb_dir = self.trainer.work_dir / "wandb"
             wandb_dir.mkdir(parents=True, exist_ok=True)
-            # import pdb;pdb.set_trace()
             self.wandb.init(
                 dir=wandb_dir,
                 project=self.project,
@@ -143,8 +142,8 @@ class WandBCallback(Callback):
                 name=self.name,
                 tags=self.tags,
                 notes=self.notes,
-                # resume=self.resume,
-                # id=self.name,  # type: ignore
+                resume=self.resume,
+                id=self.name,  # type: ignore
                 config=self.config,
             )
             self._run_path = self.run.path  # type: ignore
