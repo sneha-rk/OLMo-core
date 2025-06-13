@@ -35,12 +35,16 @@ def main(
 
     for model in MODELS:
         model_sweep_name = f"{SWEEP_NAME}_{model}" if add_model_to_name == 'end' else SWEEP_NAME
-        SPECS = copy(PROJECT_SPECS)
+        SPECS = copy(PROJECT_SPECS[os.environ.get('USER')])
         SPECS.update(HARDWARE_SPECS_DICT[model][partition])
         grids = {
             model_sweep_name: {
-                "main_grid": {
+                # main_grid is the top-level grid, the sweep will run over all combinations of these hyperparameters, 
+                # combined with the subgrids
+                "main_grid": { 
                     "model_name": [model],
+                    "save_root": [f"{SPECS['DEFAULT_SAVE_PATH']}/{SWEEP_NAME}"],
+                    "per_gpu_batch_size": [SPECS["per_gpu_batch_size"]],
                     'train_module': {
                         'optim': {
                             'lr': [1e-4, 2e-4, 3e-4],
@@ -57,6 +61,7 @@ def main(
                         },
                     },
                 },
+                # allows you to bundle multiple hyperparameters together
                 "subgrids": {
                     # "4x1c2": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["2"]},
                     # "8x1c2": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["2"]},
@@ -69,8 +74,7 @@ def main(
         for sweep_name, grid in grids.items():
             # grid.update(SPECS)
             run_grid(
-                grid.get("main_grid", {}),
-                subgrids=grid.get("subgrids", {}),
+                grid,
                 sweep_name=sweep_name,
                 name_keys=SPECS.get("NAME_KEYS", []),
                 user=os.environ['USER'],
