@@ -642,6 +642,7 @@ class TransformerConfig(Config):
     @classmethod
     def olmo2_10M_moe(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
         d_model = kwargs.pop("d_model", 336)
+        # hidden_sizes_list = [int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])]
         return cls.llama_like(
             d_model=d_model,
             vocab_size=vocab_size,
@@ -655,9 +656,9 @@ class TransformerConfig(Config):
             feed_forward=FeedForwardConfig(hidden_size=d_model * 2, bias=False),
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
-                num_experts=kwargs.pop("num_experts", 32),
-                hidden_size=kwargs.pop("hidden_size", int(0.5 * d_model)),
-                routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks", [4])],
+                num_experts_list=kwargs.pop("num_experts_list", 32),
+                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
+                routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4])],
                 lb_loss_weight=0.01,
                 z_loss_weight=0.001,
             ),
@@ -680,9 +681,9 @@ class TransformerConfig(Config):
             feed_forward=FeedForwardConfig(hidden_size=d_model * 2, bias=False),
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
-                num_experts=kwargs.pop("num_experts", 32),
-                hidden_size=kwargs.pop("hidden_size", int(0.5 * d_model)),
-                routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks", [4])],
+                num_experts_list=kwargs.pop("num_experts_list", 32),
+                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
+                routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4])],
                 lb_loss_weight=0.01,
                 z_loss_weight=0.001,
             ),
@@ -704,16 +705,16 @@ class TransformerConfig(Config):
             feed_forward=FeedForwardConfig(hidden_size=d_model * 2, bias=False),
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
-                num_experts=kwargs.pop("num_experts", 32),
-                hidden_size=kwargs.pop("hidden_size", int(0.5 * d_model)),
-                routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks", [4])],
+                num_experts_list=kwargs.pop("num_experts_list", 32),
+                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
+                routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4])],
                 lb_loss_weight=0.01,
                 z_loss_weight=0.001,
             ),
         )
 
     @classmethod
-    def olmo2_100M_moe_32(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
+    def olmo2_100M_moe(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
         d_model = kwargs.pop("d_model", 832)
         return cls.llama_like(
             d_model=d_model,
@@ -728,39 +729,13 @@ class TransformerConfig(Config):
             feed_forward=FeedForwardConfig(hidden_size=d_model * 2, bias=False),
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
-                num_experts_list=kwargs.pop("num_experts", [32]),
-                hidden_sizes_list=kwargs.pop("hidden_size", [int(0.25 * d_model)]),
-                routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks", [4])],
+                num_experts_list=kwargs.pop("num_experts_list", [32]),
+                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
+                routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4])],
                 lb_loss_weight=0.01,
                 z_loss_weight=0.001,
             ),
         )
-        
-    
-    @classmethod
-    def olmo2_100M_moe_16(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
-        d_model = kwargs.pop("d_model", 832)
-        return cls.llama_like(
-            d_model=d_model,
-            vocab_size=vocab_size,
-            n_layers=kwargs.pop("n_layers", 12),
-            n_heads=kwargs.pop("n_heads", 13),
-            name=kwargs.pop("name", TransformerType.moe),
-            block_name=kwargs.pop("block_name", TransformerBlockType.moe_hybrid_reordered_norm),
-            qk_norm=kwargs.pop("qk_norm", True),
-            rope_theta=kwargs.pop("rope_theta", 500_000),
-            layer_norm_eps=1e-6,
-            feed_forward=FeedForwardConfig(hidden_size=d_model * 2, bias=False),
-            feed_forward_moe=MoEConfig(
-                name=MoEType.default,
-                num_experts_list=kwargs.pop("num_experts", [16]),
-                hidden_sizes_list=kwargs.pop("hidden_size", [int(0.5 * d_model)]),
-                routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks", [2])],
-                lb_loss_weight=0.01,
-                z_loss_weight=0.001,
-            ),
-        )
-    
 
     @classmethod
     def olmo2_100M_moe_32_16(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
@@ -778,9 +753,9 @@ class TransformerConfig(Config):
             feed_forward=FeedForwardConfig(hidden_size=d_model * 2, bias=False),
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
-                num_experts_list=kwargs.pop("num_experts", [32, 16]),
-                hidden_sizes_list=kwargs.pop("hidden_size", [int(0.25 * d_model), int(0.5 * d_model)]),
-                routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks", [4, 2])],
+                num_experts_list=kwargs.pop("num_experts_list", [32, 16]),
+                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
+                routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4, 2])],
                 lb_loss_weight=0.01,
                 z_loss_weight=0.001,
             ),

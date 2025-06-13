@@ -13,7 +13,7 @@ import random
 import subprocess
 import sys
 
-from constants import DEFAULT_DIR_PATH, DEFAULT_SAVE_PATH
+from constants import DEFAULT_DIR_PATH
 
 
 BASH_IF_CLAUSE = """
@@ -133,7 +133,7 @@ export NCCL_MIN_CHANNELS=32
 
 cd {NEW_DIR_PATH}
 export PYTHONPATH={SAVE_ROOT}/{repo_name}:$PYTHONPATH
-CUDA_LAUNCH_BLOCKING=1 {python_cmd} {CONFIGFILE} {ARGS_STR} &
+CUDA_LAUNCH_BLOCKING=1 {python_cmd} {job_name} {gpus} {ARGS_STR} &
 echo "# -------- FINISHED CALL TO SRUN --------"
 echo
 nvidia-smi
@@ -150,8 +150,9 @@ def sha1(string):
 
 
 def run_grid(
-    grid,
-    sweep_name,
+    main_grid,
+    subgrids={"": {}},
+    sweep_name="",
     name_keys=[],
     user=os.environ['USER'],
     prefix=None,
@@ -166,8 +167,8 @@ def run_grid(
     include_job_id=False,
     hide_keys={},
     hashname=False,
-    saveroot=DEFAULT_SAVE_PATH,
-    logroot=DEFAULT_SAVE_PATH,
+    saveroot='',
+    logroot='',
     mem_gb=64,
     requeue=False,
     data_parallel=False,
@@ -184,14 +185,9 @@ def run_grid(
     add_name=None,
     dependencies=[],
     repo_name="code",
-    wandb_project=None,
-    wandb_entity=None,
     conda_env_name=None,
     include_jobs=None,
     restart=False,
-    default_config_file=None,
-    model_config_file=None,
-    write_config_filename="config.yml",
 ):
     """Generates full commands from a grid.
 
@@ -239,7 +235,7 @@ def run_grid(
                 d[k] = v
         return d
     
-    def get_name_keys(dictionary, parents_key_list=[]):
+    def get_name_keys(dictionary, parents_key_list=[], use_all_keys=False, prefix=''):
         items = []
         for key, value in dictionary.items():
             new_key_list = deepcopy(parents_key_list)
@@ -249,41 +245,61 @@ def run_grid(
             else:
                 assert isinstance(value, list)
                 if len(value) > 1:
-                    items.append(new_key_list)
+                    if not isinstance(value[0], collections.abc.Mapping):
+                        items.append('.'.join(new_key_list))
+                    else:
+                        items.extend(['.'.join(new_key_list + [k]) for v in value for k in v.keys()])
+        items = list(set(items))  # remove duplicates
+        print(items)
         return items
 
-    def make_job_name(name_keys, config_dict, separator='.'):
+    def make_job_name(name_keys_list, args_dict, sweep_name='', subgrid_name=''):
         name_list = []
-        for key_list in name_keys:
-            print(key_list)
-            print(config_dict)
-            d = config_dict
-            for key in key_list:
-                d = d[key]
-            if type(d) == str:
-                d = d.replace('_', '')
-                if ' ' in d:
-                    d = d.replace(' --', '_').replace(' -', '_')
-                    d = d.replace(' ', '=')
+        if sweep_name:
+            name_list.append(sweep_name)
+        if subgrid_name:
+            name_list.append(subgrid_name)
+        for key in name_keys_list:
+            value = args_dict.get(key, None)
+            if value is None:
+                continue
+            short_key = key.replace("_", "").split('.')[-1] if '.' in key else key
+            if type(value) == str:
+                value = value.replace('_', '')
+                if ' ' in value:
+                    value = value.replace(' --', '_').replace(' -', '_')
+                    value = value.replace(' ', '=')
             # name_list.append('{}={}'.format('.'.join(key_list), str(d)))
-            name_list.append('{}={}'.format(key_list[-1], str(d)))
+            name_list.append('{}={}'.format(short_key, str(value)))
         return '_'.join(name_list)
+    
+    def unroll_args(d, prefix=''):
+        """Unrolls a dict of args into a list of strings."""
+        args = {}
+        for k, v in d.items():
+            if isinstance(v, collections.abc.Mapping):
+                args.update(unroll_args(v, f'{prefix}.{k}' if prefix else k))
+            else:
+                if prefix:
+                    args[f"{prefix}.{k}"] = v
+                else:
+                    args[k] = v
+        return args
+    
 
     if not prefix:
         raise ValueError('Need prefix command')
-    # if not hasattr(grid, 'items'):
-    #     raise TypeError('Grid should be a dict.')
     SAVE_ROOT = saveroot
     LOG_ROOT = logroot
 
-    Job = namedtuple('Job', ['cmd', 'config_dict', 'name'])
-    # get list of name keys
+    Job = namedtuple('Job', ['cmd', 'name'])
     all_jobs = []
-    name_key_list = set(map(tuple, get_name_keys(grid) + name_keys))
+    name_key_lists = {} 
 
     import itertools
-    keys, values = zip(*grid.items())
-    permutations_dicts = [dict(zip(keys, v)) for v in itertools.product(*values)]
+    # keys, values = zip(*main_grid.items())
+    # permutations_dicts = [dict(zip(keys, v)) for v in itertools.product(*values)]
+
     def c_prod(d):
         if isinstance(d, list):
             for i in d:
@@ -292,9 +308,15 @@ def run_grid(
             for i in itertools.product(*map(c_prod, d.values())):
                 yield dict(zip(d.keys(), i))
 
-    print(list(c_prod(grid)))
-    permutations_dicts = list(c_prod(grid))
-    # shorten names if possible
+    # print(list(c_prod(main_grid)))
+    # permutations_dicts = list(c_prod(main_grid))
+    all_permutation_dicts = {}
+    for subgrid_name, subgrid in subgrids.items():
+        subgrid.update(main_grid)
+        all_permutation_dicts[subgrid_name] = list(c_prod(subgrid))
+        name_key_lists[subgrid_name] = get_name_keys(subgrid) + name_keys
+
+    # shorten names if possiblep
     if hashname:
         # keep the names from getting too long
         full_names = [name for _, _, name in all_jobs]
@@ -310,18 +332,19 @@ def run_grid(
     final_jobs = []
     job_id = job_id_start
 
-    for config_dict in permutations_dicts:
-        for _ in range(num_copies):
-            name = make_job_name(name_key_list, config_dict)
-            name = sha1(name) if hashname else name
-            name = name[:cutoff] if cutoff else name
-            cmd = f"{prefix} {name}"
-            for key, value in config_dict.items():
-                cmd += f" --{key}={value}"
-            if include_job_id:
-                name += '/_jobid=' + str(job_id)
-            final_jobs.append(Job(cmd=cmd, name=name))
-            job_id += 1
+    for subgrid_name, permutations_dicts in all_permutation_dicts.items():
+        name_key_list = name_key_lists[subgrid_name]
+        for config_dict in permutations_dicts:
+            for _ in range(num_copies):
+                cmd_args = unroll_args(config_dict)
+                name = make_job_name(name_key_list, cmd_args, sweep_name=sweep_name, subgrid_name=subgrid_name)
+                name = name[:cutoff] if cutoff else name
+                name = sha1(name) if hashname else name
+                cmd = f"{prefix} {name} {gpus} " + ' '.join([f'--{k}={v}' for k, v in cmd_args.items()])
+                if include_job_id:
+                    name += '/_jobid=' + str(job_id)
+                final_jobs.append(Job(cmd=cmd, name=name))
+                job_id += 1
 
     print('Example of first job:\n{}\n'.format(final_jobs[0].cmd))
     if dry_mode:
@@ -373,14 +396,12 @@ def run_grid(
                 LOG_ROOT,
                 job.name,
                 job.cmd,
-                job.config_dict,
                 gpus=gpus,
                 nodes=nodes,
                 data_parallel=data_parallel,
                 requeue=requeue,
                 NEW_DIR_PATH=NEW_DIR_PATH,
                 repo_name=repo_name,
-                config_filename=write_config_filename,
             )
         )
     print(final_jobs)
@@ -422,7 +443,6 @@ def create_job_files(
     LOG_ROOT,
     job_name,
     python_cmd,
-    config_dict, 
     job_args=[],
     gpus=1,
     nodes=1,
@@ -430,7 +450,6 @@ def create_job_files(
     requeue=False,
     NEW_DIR_PATH=DEFAULT_DIR_PATH,
     repo_name="",
-    config_filename="config.yml",
 ):
     """Creates job folders and scripts"""
     
@@ -440,7 +459,6 @@ def create_job_files(
     LOG = os.path.join(LOG_ROOT, job_name)
     bash('mkdir -p ' + LOG)
     SCRIPTFILE = os.path.join(SAVE, 'run.sh')
-    CONFIGFILE = os.path.join(SAVE, config_filename)
     ARGS_STR = ' '.join(job_args)
 
     if data_parallel or not gpus:
