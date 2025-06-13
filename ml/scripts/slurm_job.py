@@ -133,7 +133,7 @@ export NCCL_MIN_CHANNELS=32
 
 cd {NEW_DIR_PATH}
 export PYTHONPATH={SAVE_ROOT}/{repo_name}:$PYTHONPATH
-CUDA_LAUNCH_BLOCKING=1 {python_cmd} {job_name} {gpus} {ARGS_STR} &
+CUDA_LAUNCH_BLOCKING=1 {python_cmd} &
 echo "# -------- FINISHED CALL TO SRUN --------"
 echo
 nvidia-smi
@@ -150,8 +150,7 @@ def sha1(string):
 
 
 def run_grid(
-    main_grid,
-    subgrids={"": {}},
+    grid,
     sweep_name="",
     name_keys=[],
     user=os.environ['USER'],
@@ -250,7 +249,6 @@ def run_grid(
                     else:
                         items.extend(['.'.join(new_key_list + [k]) for v in value for k in v.keys()])
         items = list(set(items))  # remove duplicates
-        print(items)
         return items
 
     def make_job_name(name_keys_list, args_dict, sweep_name='', subgrid_name=''):
@@ -297,9 +295,6 @@ def run_grid(
     name_key_lists = {} 
 
     import itertools
-    # keys, values = zip(*main_grid.items())
-    # permutations_dicts = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
     def c_prod(d):
         if isinstance(d, list):
             for i in d:
@@ -308,11 +303,9 @@ def run_grid(
             for i in itertools.product(*map(c_prod, d.values())):
                 yield dict(zip(d.keys(), i))
 
-    # print(list(c_prod(main_grid)))
-    # permutations_dicts = list(c_prod(main_grid))
     all_permutation_dicts = {}
-    for subgrid_name, subgrid in subgrids.items():
-        subgrid.update(main_grid)
+    for subgrid_name, subgrid in grid["subgrids"].items():
+        subgrid.update(grid["main_grid"])
         all_permutation_dicts[subgrid_name] = list(c_prod(subgrid))
         name_key_lists[subgrid_name] = get_name_keys(subgrid) + name_keys
 

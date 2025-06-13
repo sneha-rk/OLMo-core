@@ -57,6 +57,8 @@ from constants import (
     PROJECT_SPECS,
 )
 
+USER_PROJECT_SPECS = PROJECT_SPECS[os.environ.get('USER', 'default')]
+
 # This will read stream data from the public endpoints by default, but that might be a lot slower
 # than reading data locally.
 
@@ -77,19 +79,17 @@ def build_config(
         model_name: str = "olmo2_100M_moe_32_16",
         train_datamix_name: str = "OLMoE_mix_0824",
         valid_datamix_name: str = "v3_small_ppl_validation",
-        data_root: str = PROJECT_SPECS['DATAROOT'],
-        save_root: str = PROJECT_SPECS['DEFAULT_SAVE_PATH'],
-        valid_data_dir: str = PROJECT_SPECS['VALID_DATA_DIR'],
-        data_work_dir: str = PROJECT_SPECS['DATA_WORK_DIR'],
-        wandb_entity: str = PROJECT_SPECS['WANDB_ENTITY'],
-        wandb_project: str = PROJECT_SPECS['WANDB_PROJECT'],
+        data_root: str = USER_PROJECT_SPECS['DATAROOT'],
+        save_root: str = USER_PROJECT_SPECS['DEFAULT_SAVE_PATH'],
+        valid_data_dir: str = USER_PROJECT_SPECS['VALID_DATA_DIR'],
+        data_work_dir: str = USER_PROJECT_SPECS['DATA_WORK_DIR'],
+        sequence_length: int = 2048,
+        per_gpu_batch_size: int = 1,
         num_data_workers: int = 2,
         train_tokens: int = 200_000_000,
         warmup_steps: int = 2000,
-        per_gpu_batch_size: int = 1,
-        sequence_length: int = 2048,
-        save_interval: int = 2, #1000
-        ephemeral_save_interval: int = 1, #200
+        save_interval: int = 1000, 
+        ephemeral_save_interval: int = 200,
         eval_interval: int = 10000,
         metrics_collect_interval: int = 10,
         lr: float = 4e-4,
@@ -102,6 +102,8 @@ def build_config(
         moe_router_top_ks_list: List[int] = [4, 8],
         max_grad_norm: float = 1.0,
         init_seed: int = 12536,
+        wandb_entity: str = USER_PROJECT_SPECS['WANDB_ENTITY'],
+        wandb_project: str = USER_PROJECT_SPECS['WANDB_PROJECT'],
         overrides: List[str] = [],
     ) -> ExperimentConfig:
     tokenizer_config = TOKENIZER_LOOKUP[tokenizer_name]()
@@ -262,6 +264,8 @@ def main(
             save_root=args.save_root,
             valid_data_dir=args.valid_data_dir,
             data_work_dir=args.data_work_dir,
+            sequence_length=args.sequence_length,
+            per_gpu_batch_size=args.per_gpu_batch_size,
             moe_hidden_multipliers_list=[float(v) for v in args.moe_hidden_multipliers_list.split(',')], 
             moe_num_experts_list=[int(v) for v in args.moe_num_experts_list.split(',')], 
             moe_router_top_ks_list=[int(v) for v in args.moe_router_top_ks_list.split(',')], 
@@ -313,14 +317,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("run_name", type=str, help="Name of the run")
     parser.add_argument("num_gpus", type=int, default=torch.cuda.device_count(), nargs='?', help="Number of GPUs to use")
+    parser.add_argument("--sequence_length", type=int, default=2048, help="Sequence length for training")
+    parser.add_argument("--per_gpu_batch_size", type=int, default=1, help="Batch size per GPU")
     parser.add_argument("--tokenizer_name", type=str, default="dolma2", help="Name of the tokenizer to use")
     parser.add_argument("--model_name", type=str, default="olmo2_100M_moe_32_16", help="Name of the model configuration to use")
     parser.add_argument("--train_datamix_name", type=str, default="OLMoE_mix_0824", help="Name of the training data mix")
     parser.add_argument("--valid_datamix_name", type=str, default="v3_small_ppl_validation", help="Name of the validation data mix")
     parser.add_argument("--data_root", type=str, default="https://olmo-data.org/", help="Root URL for the data")
-    parser.add_argument("--save_root", type=str, default=PROJECT_SPECS['DEFAULT_SAVE_PATH'], help="Root directory for saving the model")
-    parser.add_argument("--valid_data_dir", type=str, default=PROJECT_SPECS['VALID_DATA_DIR'], help="Directory for validation data")
-    parser.add_argument("--data_work_dir", type=str, default=PROJECT_SPECS['DATA_WORK_DIR'], help="Working directory for data")
+    parser.add_argument("--save_root", type=str, default=USER_PROJECT_SPECS['DEFAULT_SAVE_PATH'], help="Parent directory for saving the model")
+    parser.add_argument("--valid_data_dir", type=str, default=USER_PROJECT_SPECS['VALID_DATA_DIR'], help="Directory for validation data")
+    parser.add_argument("--data_work_dir", type=str, default=USER_PROJECT_SPECS['DATA_WORK_DIR'], help="Working directory for data")
     parser.add_argument("--moe_num_experts_list", type=str, default="32,64", help="List of number of experts for MoE")
     parser.add_argument("--moe_hidden_multipliers_list", type=str, default="1024,2048", help="List of hidden sizes multiplers for MoE")
     parser.add_argument("--moe_router_top_ks_list", type=str, default="4,8", help="List of router top-k values for MoE")

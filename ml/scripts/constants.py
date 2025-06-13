@@ -14,7 +14,7 @@ from olmo_core.optim import CosWithWarmup, OptimGroupOverride, AdamWConfig
 
 #  = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
 
-DEFAULT_DIR_PATH = '/'.join(os.path.normpath(os.path.realpath(__file__)).split(os.path.sep)[:-4])
+DEFAULT_DIR_PATH = '/'.join(os.path.normpath(os.path.realpath(__file__)).split(os.path.sep)[:-3])
 
 
 MODEL_CONFIG_LOOKUP = {
@@ -34,22 +34,26 @@ DATAMIX_LOOKUP = {
 
 
 PROJECT_SPECS = {
-    'DEFAULT_SAVE_PATH': os.path.join(DEFAULT_DIR_PATH, 'ml', 'models'),
-    'DATA_WORK_DIR': "/gscratch/zlab/margsli/gitfiles/olmoe-core/OLMo-core/ml/data",
-    'VALID_DATA_DIR': "/gscratch/zlab/margsli/gitfiles/olmoe-core/OLMo-core/ml/data/preprocessed",
-    "WANDB_PROJECT": "moe",
-    "WANDB_ENTITY": "ml-moe",
-    "CONDA_ENV_NAME": "moe",
-    "PROJECT_DIR": DEFAULT_DIR_PATH,
-    "SLURM_ACCOUNT": "zlab",
-    "SLURM_PARTITION": "gpu-a40,gpu-l40",
-    "COMMAND_PREFIX": f"python {DEFAULT_DIR_PATH}/OLMo-core/ml/scripts/single_train_launch.py",
-    "NUM_GPUS": 4,
-    "MODEL": [],
-    "DATAROOT": "https://olmo-data.org/",
-    "DATA_DIR": "/gscratch/zlab/snehark/OLMo-core/data/",
-    "DEFAULT_CONFIG_FILE": f"{DEFAULT_DIR_PATH}/configs/ml/moe_default.json",
-    "NAME_KEYS": ["model_name"],
+    "margsli": {
+        'DEFAULT_SAVE_PATH': os.path.join(DEFAULT_DIR_PATH, 'models'),
+        'DATA_WORK_DIR': "/gscratch/zlab/margsli/gitfiles/olmoe-core/OLMo-core/ml/data",
+        'VALID_DATA_DIR': "/gscratch/zlab/margsli/gitfiles/olmoe-core/OLMo-core/ml/data/preprocessed",
+        "WANDB_PROJECT": "moe",
+        "WANDB_ENTITY": "ml-moe",
+        "CONDA_ENV_NAME": "moe",
+        "PROJECT_DIR": DEFAULT_DIR_PATH,
+        "SLURM_ACCOUNT": "zlab",
+        "SLURM_PARTITION": "gpu-a40,gpu-l40",
+        "COMMAND_PREFIX": f"python {DEFAULT_DIR_PATH}/ml/scripts/single_train_launch.py",
+        "NUM_GPUS": 4,
+        "MODEL": [],
+        "DATAROOT": "https://olmo-data.org/",
+        "DATA_DIR": "/gscratch/zlab/snehark/OLMo-core/data/",
+        "NAME_KEYS": ["model_name"],
+    },
+    "snehark": {
+        ## TODO @snehark: Update these paths to your local setup
+    }
 }
 
 HARDWARE_SPECS_DICT = {
@@ -64,6 +68,7 @@ HARDWARE_SPECS_DICT = {
             "NUM_GPUS": 4,
             "NUM_CPUS": 3,
             "MEM_GB": 128,
+            "per_gpu_batch_size": 8,
         }, 
         "gpu-a100": {
             "NUM_GPUS": 1,
