@@ -13,12 +13,16 @@ import random
 import subprocess
 import sys
 
-from constants import DEFAULT_DIR_PATH
 
+# BASH_IF_CLAUSE = """
+# if [[ "$SLURM_ARRAY_TASK_ID" == "{index}" ]]; then
+#     srun -K1 bash {SAVE}/run.sh > {SAVE}/stdout.$SLURM_ARRAY_TASK_ID 2> {SAVE}/stderr.$SLURM_ARRAY_TASK_ID
+# fi
+# """
 
 BASH_IF_CLAUSE = """
 if [[ "$SLURM_ARRAY_TASK_ID" == "{index}" ]]; then
-    srun -K1 bash {SAVE}/run.sh > {SAVE}/stdout.$SLURM_ARRAY_TASK_ID 2> {SAVE}/stderr.$SLURM_ARRAY_TASK_ID
+    bash {SAVE}/run.sh > {SAVE}/stdout.$SLURM_ARRAY_TASK_ID 2> {SAVE}/stderr.$SLURM_ARRAY_TASK_ID
 fi
 """
 SLRM_JOB_ARRAY_TEMPLATE = """
@@ -103,8 +107,7 @@ nvidia-smi
 
 source ~/.bashrc
 
-echo "SLURM_PROCID"
-echo $SLURM_PROCID
+echo "SLURM_PROCID"=$SLURM_PROCID
 echo "node-list: $SLURM_JOB_NODELIST"
 
 export MASTER_PORT=$(( ($(stringsum $RUN_ID) % 10000) + 10000 ))
@@ -133,15 +136,90 @@ export NCCL_MIN_CHANNELS=32
 
 cd {NEW_DIR_PATH}
 export PYTHONPATH={SAVE_ROOT}/{repo_name}:$PYTHONPATH
-CUDA_LAUNCH_BLOCKING=1 {python_cmd} &
+if [[ "$SLURM_PROCID" == "0" ]]; then 
+    CUDA_LAUNCH_BLOCKING=1 torchrun {cmd} 
+fi
 echo "# -------- FINISHED CALL TO SRUN --------"
 echo
 nvidia-smi
 
-CHILD="$!"
-wait "$CHILD"
-sleep 30
 """
+
+# CHILD="$!"
+# wait "$CHILD"
+# sleep 30
+
+
+# SH_TEMPLATE = """
+# #!/bin/bash
+# set -e
+
+# source ~/.bashrc
+
+# # stores the child process
+# CHILD=""
+
+# # handles a TERM signal
+# term_handler () {{
+#     # catch and ignore TERM. we get multiple terms during shutdown, so best
+#     # to just do nothing
+#     # but still keep going with the python process
+#     wait "$CHILD"
+# }}
+
+# # handles an interrupt (aka ctrl-C)
+# int_handler () {{
+#     # propagate a ctrl-C to the python process
+#     kill -s INT "$CHILD"
+#     wait "$CHILD"
+# }}
+
+# # handles a USR1, which signals preemption or job time is up
+# usr1_handler () {{
+#     echo "SLURM signaling preemption/times up (SLURM_PROCID $SLURM_PROCID)."
+#     kill -s INT "$CHILD"  # send ctrl-c to python
+#     if {SHOULD_REQUEUE} && [ "$SLURM_PROCID" -eq "0" ]; then
+#         echo "Waiting 5s and resubmitting..."
+#         sleep 5
+#         echo "Resubmitting..."
+#         scontrol requeue $SLURM_JOB_ID
+#     fi
+#     wait "$CHILD"
+# }}
+
+# trap 'int_handler' INT
+# trap 'usr1_handler' USR1
+# trap 'term_handler' TERM
+
+# # Uncommenting these two lines can help with identifying hangs
+# # export NCCL_DEBUG=INFO
+# # export PYTHONFAULTHANDLER=1
+
+# # setting this this can also help with hangs
+# # NCCL_LL_THRESHOLD=0
+
+# export MASTER_PORT=$(( ($(stringsum $RUN_ID) % 10000) + 10000 ))
+
+# export WORLD_SIZE=$(($NUM_GPUS))
+# echo "MASTER_PORT"=$MASTER_PORT
+
+# master_addr=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+# export MASTER_ADDR=$master_addr
+# echo "MASTER_ADDR="$MASTER_ADDR
+
+# cd {NEW_DIR_PATH}
+# export PYTHONPATH={SAVE_ROOT}/{repo_name}:$PYTHONPATH
+# if [[ "$SLURM_PROCID" == "0" ]]; then 
+#     CUDA_LAUNCH_BLOCKING=1 torchrun {cmd} &
+# fi 
+# echo "# -------- FINISHED CALL TO SRUN --------"
+# echo
+# nvidia-smi
+
+# CHILD="$!"
+# wait "$CHILD"
+# sleep 30
+# """
 
 
 def sha1(string):
@@ -151,6 +229,7 @@ def sha1(string):
 
 def run_grid(
     grid,
+    default_grid={},
     sweep_name="",
     name_keys=[],
     user=os.environ['USER'],
@@ -161,7 +240,7 @@ def run_grid(
     node_exclude=None,
     account='zlab',
     partition='gpu-rtx6k',
-    DIR_PATH=DEFAULT_DIR_PATH,
+    DIR_PATH="",
     jobtime='01:59:59',
     include_job_id=False,
     hide_keys={},
@@ -234,7 +313,7 @@ def run_grid(
                 d[k] = v
         return d
     
-    def get_name_keys(dictionary, parents_key_list=[], use_all_keys=False, prefix=''):
+    def get_name_keys(dictionary, parents_key_list=[], name_keys=[], use_all_keys=False):
         items = []
         for key, value in dictionary.items():
             new_key_list = deepcopy(parents_key_list)
@@ -243,12 +322,13 @@ def run_grid(
                 items.extend(get_name_keys(value, new_key_list))
             else:
                 assert isinstance(value, list)
-                if len(value) > 1:
-                    if not isinstance(value[0], collections.abc.Mapping):
-                        items.append('.'.join(new_key_list))
-                    else:
-                        items.extend(['.'.join(new_key_list + [k]) for v in value for k in v.keys()])
-        items = list(set(items))  # remove duplicates
+                if isinstance(value[0], collections.abc.Mapping):
+                    for vd in value:
+                        if isinstance(vd, collections.abc.Mapping):
+                            items.extend(get_name_keys(vd, new_key_list))
+                elif len(value) > 1:
+                    items.append('.'.join(new_key_list))
+        items = list(set(items + name_keys))  # remove duplicates
         return items
 
     def make_job_name(name_keys_list, args_dict, sweep_name='', subgrid_name=''):
@@ -259,7 +339,7 @@ def run_grid(
             name_list.append(subgrid_name)
         for key in name_keys_list:
             value = args_dict.get(key, None)
-            if value is None:
+            if value is None or isinstance(value, collections.abc.Mapping):
                 continue
             short_key = key.replace("_", "").split('.')[-1] if '.' in key else key
             if type(value) == str:
@@ -292,7 +372,7 @@ def run_grid(
 
     Job = namedtuple('Job', ['cmd', 'name'])
     all_jobs = []
-    name_key_lists = {} 
+    name_key_lists = {}
 
     import itertools
     def c_prod(d):
@@ -304,10 +384,14 @@ def run_grid(
                 yield dict(zip(d.keys(), i))
 
     all_permutation_dicts = {}
+    main_grid = deepcopy(default_grid)
+    main_grid.update(grid["main_grid"])
     for subgrid_name, subgrid in grid["subgrids"].items():
-        subgrid.update(grid["main_grid"])
-        all_permutation_dicts[subgrid_name] = list(c_prod(subgrid))
-        name_key_lists[subgrid_name] = get_name_keys(subgrid) + name_keys
+        subgrid_merged = deepcopy(main_grid)
+        subgrid_merged.update(subgrid)
+        print(subgrid_merged)
+        all_permutation_dicts[subgrid_name] = list(c_prod(subgrid_merged))
+        name_key_lists[subgrid_name] = get_name_keys(subgrid_merged, name_keys=name_keys)
 
     # shorten names if possiblep
     if hashname:
@@ -435,13 +519,13 @@ def create_job_files(
     SAVE_ROOT,
     LOG_ROOT,
     job_name,
-    python_cmd,
+    cmd,
     job_args=[],
     gpus=1,
     nodes=1,
     data_parallel=False,
     requeue=False,
-    NEW_DIR_PATH=DEFAULT_DIR_PATH,
+    NEW_DIR_PATH="",
     repo_name="",
 ):
     """Creates job folders and scripts"""
@@ -476,14 +560,14 @@ def submit_array_jobs(
     account='zlab',
     partition='gpu-rtx6k',
     jobtime='23:59:59',
-    DIR_PATH=DEFAULT_DIR_PATH,
+    DIR_PATH="",
     mem_gb=64,
     requeue=False,
     data_parallel=False,
     comment=None,
     volta=False,
     volta32=False,
-    NEW_DIR_PATH=DEFAULT_DIR_PATH,
+    NEW_DIR_PATH="",
     jobs_path=[],
     dependencies=[],
     conda_env_name=None,

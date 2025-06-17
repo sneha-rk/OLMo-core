@@ -51,11 +51,26 @@ from olmo_core.train.train_module import (
 from olmo_core.utils import seed_all
 
 from constants import (
-    MODEL_CONFIG_LOOKUP, 
-    TOKENIZER_LOOKUP, 
-    DATAMIX_LOOKUP,
     PROJECT_SPECS,
 )
+
+MODEL_CONFIG_LOOKUP = {
+    "olmo2_10M": TransformerConfig.olmo2_10M,
+    "olmo2_20M": TransformerConfig.olmo2_20M,
+    "olmo2_50M": TransformerConfig.olmo2_50M,
+    "olmo2_100M": TransformerConfig.olmo2_100M,
+}
+
+TOKENIZER_LOOKUP = {
+    "dolma2": TokenizerConfig.dolma2,
+    "gpt_neox_olmo_dolma_v1_5": TokenizerConfig.gpt_neox_olmo_dolma_v1_5,
+}
+
+DATAMIX_LOOKUP = {
+    "OLMoE_mix_1124": DataMix.OLMoE_mix_1124,
+    "OLMoE_mix_0824": DataMix.OLMoE_mix_0824,
+    "v3_small_ppl_validation": DataMix.v3_small_ppl_validation,
+}
 
 USER_PROJECT_SPECS = PROJECT_SPECS[os.environ.get('USER', 'default')]
 
@@ -84,7 +99,8 @@ def build_config(
         valid_data_dir: str = USER_PROJECT_SPECS['VALID_DATA_DIR'],
         data_work_dir: str = USER_PROJECT_SPECS['DATA_WORK_DIR'],
         sequence_length: int = 2048,
-        per_gpu_batch_size: int = 1,
+        global_batch_size: int = 512, # 512 sequences total
+        per_gpu_batch_size: int = 4,  # 4 sequences per GPU
         num_data_workers: int = 2,
         train_tokens: int = 200_000_000,
         warmup_steps: int = 2000,
@@ -110,6 +126,7 @@ def build_config(
 
     model_config = MODEL_CONFIG_LOOKUP[model_name](
         vocab_size=tokenizer_config.padded_vocab_size(),
+        use_moe=False if moe_num_experts_list == [1] else True,
         num_experts_list=moe_num_experts_list,
         hidden_multipliers_list=moe_hidden_multipliers_list,
         router_top_ks_list=moe_router_top_ks_list,
@@ -125,7 +142,7 @@ def build_config(
     )
 
     data_loader_config = NumpyDataLoaderConfig(
-        global_batch_size=num_gpus * per_gpu_batch_size * sequence_length,
+        global_batch_size=global_batch_size * sequence_length,
         seed=34521,
         num_workers=num_data_workers,
     )
@@ -265,6 +282,7 @@ def main(
             valid_data_dir=args.valid_data_dir,
             data_work_dir=args.data_work_dir,
             sequence_length=args.sequence_length,
+            global_batch_size=args.global_batch_size,
             per_gpu_batch_size=args.per_gpu_batch_size,
             moe_hidden_multipliers_list=[float(v) for v in args.moe_hidden_multipliers_list.split(',')], 
             moe_num_experts_list=[int(v) for v in args.moe_num_experts_list.split(',')], 
@@ -317,8 +335,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("run_name", type=str, help="Name of the run")
     parser.add_argument("num_gpus", type=int, default=torch.cuda.device_count(), nargs='?', help="Number of GPUs to use")
-    parser.add_argument("--sequence_length", type=int, default=2048, help="Sequence length for training")
-    parser.add_argument("--per_gpu_batch_size", type=int, default=1, help="Batch size per GPU")
     parser.add_argument("--tokenizer_name", type=str, default="dolma2", help="Name of the tokenizer to use")
     parser.add_argument("--model_name", type=str, default="olmo2_100M_moe_32_16", help="Name of the model configuration to use")
     parser.add_argument("--train_datamix_name", type=str, default="OLMoE_mix_0824", help="Name of the training data mix")
@@ -327,6 +343,9 @@ if __name__ == "__main__":
     parser.add_argument("--save_root", type=str, default=USER_PROJECT_SPECS['DEFAULT_SAVE_PATH'], help="Parent directory for saving the model")
     parser.add_argument("--valid_data_dir", type=str, default=USER_PROJECT_SPECS['VALID_DATA_DIR'], help="Directory for validation data")
     parser.add_argument("--data_work_dir", type=str, default=USER_PROJECT_SPECS['DATA_WORK_DIR'], help="Working directory for data")
+    parser.add_argument("--sequence_length", type=int, default=2048, help="Sequence length for training")
+    parser.add_argument("--global_batch_size", type=int, default=512, help="Batch size total")
+    parser.add_argument("--per_gpu_batch_size", type=int, default=512, help="Batch size per GPU")
     parser.add_argument("--moe_num_experts_list", type=str, default="32,64", help="List of number of experts for MoE")
     parser.add_argument("--moe_hidden_multipliers_list", type=str, default="1024,2048", help="List of hidden sizes multiplers for MoE")
     parser.add_argument("--moe_router_top_ks_list", type=str, default="4,8", help="List of router top-k values for MoE")
