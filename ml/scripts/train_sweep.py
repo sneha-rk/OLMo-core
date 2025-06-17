@@ -3,19 +3,22 @@ import os
 from datetime import datetime
 from copy import copy
 from slurm_job import run_grid
-from constants import PROJECT_SPECS, HARDWARE_SPECS_DICT
+from constants import PROJECT_SPECS, HARDWARE_SPECS_DICT, MODEL_HP_DEFAULTS
 
 
 SWEEP_NAME_DEFAULT = ''
 project = 'moe'
 MODELS = [
-    'olmo2_100M_moe',
+    # 'olmo2_100M',
+    'olmo2_50M',
+    'olmo2_20M',
+    'olmo2_10M',
 ]
 
 def main(
     sweep_name=SWEEP_NAME_DEFAULT,
     add_time_to_name='front',
-    add_model_to_name=None,
+    add_model_to_name='end',
     debug=False, 
     dry_mode=False,
     account=None, 
@@ -37,82 +40,85 @@ def main(
         model_sweep_name = f"{SWEEP_NAME}_{model}" if add_model_to_name == 'end' else SWEEP_NAME
         SPECS = copy(PROJECT_SPECS[os.environ.get('USER')])
         SPECS.update(HARDWARE_SPECS_DICT[model][partition])
-        grids = {
-            model_sweep_name: {
-                # main_grid is the top-level grid, the sweep will run over all combinations of these hyperparameters, 
-                # combined with the subgrids
-                "main_grid": { 
-                    "model_name": [model],
-                    "save_root": [f"{SPECS['DEFAULT_SAVE_PATH']}/{SWEEP_NAME}"],
-                    "per_gpu_batch_size": [SPECS["per_gpu_batch_size"]],
-                    'train_module': {
-                        'optim': {
-                            'lr': [1e-4, 2e-4, 3e-4],
-                        },
-                        "scheduler": {
-                            "units": ["steps"],
-                            "warmup": [2000],
-                        }
-                    },
-                    "trainer": {
-                        "max_duration": {
-                            "value": [200000000],
-                            "unit": ["tokens"],
-                        },
+        grid = {
+            # main_grid is the top-level grid, the sweep will run over all combinations of these hyperparameters, 
+            # combined with the subgrids
+            "main_grid": { 
+                "model_name": [model],
+                "save_root": [f"{SPECS['DEFAULT_SAVE_PATH']}/{SWEEP_NAME}"],
+                # "per_gpu_batch_size": [SPECS["per_gpu_batch_size"]],
+                "per_gpu_batch_size": [32, 16],
+                'train_module': {
+                    'optim': {
+                        'lr': [4e-3], #, 2e-3, 1e-3],
                     },
                 },
-                # allows you to bundle multiple hyperparameters together
-                "subgrids": {
-                    # "4x1c2": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["2"]},
-                    # "8x1c2": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["2"]},
-                    # "16x1c2": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["2"]},
-                    "4,8x1,0.5c1,2": {"moe_num_experts_list": ["4,8"], "moe_hidden_multipliers_list": ["1,0.5"], "moe_router_top_ks_list": ["1,2"]},
-                }
+                "trainer": {
+                    "max_duration": {
+                        "value": [100], #just testing
+                        # "value": [200000000, 2000000000], # 200M tokens
+                    },
+                },
+            },
+            # allows you to bundle multiple hyperparameters together
+            "subgrids": {
+                # "e1x1c1": {"moe_num_experts_list": ["1"]},
+                # "e4x1c1": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
+                # "e8x1c1": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
+                "e16x1c1": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
+                # "e4x0.5c2": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"]},
+                # "e8x0.5c2": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"]},
+                # "e16x0.5c2": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"]},
+                # "e8x0.25c4": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"]},
+                # "e16x0.25c4": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"]},
+                # "e4,8x0.5,0.25c1,2": {"moe_num_experts_list": ["4,8"], "moe_hidden_multipliers_list": ["0.5,0.25"], "moe_router_top_ks_list": ["1,2"]},
+                # "e8,16x0.25,0.125c2,4": {"moe_num_experts_list": ["8,16"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"]},
             },
         }
 
-        for sweep_name, grid in grids.items():
-            # grid.update(SPECS)
-            run_grid(
-                grid,
-                sweep_name=sweep_name,
-                name_keys=SPECS.get("NAME_KEYS", []),
-                user=os.environ['USER'],
-                prefix=SPECS['COMMAND_PREFIX'],
-                gpus=SPECS['NUM_GPUS'],
-                cpus=SPECS["NUM_CPUS"],
-                nodes=((SPECS['NUM_GPUS'] - 1) // 8 + 1),
-                node_exclude=None,
-                account=account,
-                partition=partition,
-                DIR_PATH=SPECS["PROJECT_DIR"],
-                jobtime=('1:00:00' if debug else SPECS.get("JOBTIME", '24:00:00')),            
-                include_job_id=False,
-                hide_keys={},
-                hashname=False,
-                saveroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{SWEEP_NAME}",
-                logroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{SWEEP_NAME}",
-                mem_gb=SPECS["MEM_GB"],
-                requeue=True,
-                data_parallel=False,
-                comment=None,
-                volta=False,
-                volta32=False,
-                copy_env=True,
-                copy_dirs=[],
-                max_num_jobs=None,
-                num_copies=1,
-                job_id_start=1,
-                debug_mode=DEBUG_MODE,
-                dry_mode=DRY_MODE,
-                add_name='end',
-                dependencies=[],
-                repo_name="olmoe",
-                conda_env_name=SPECS.get("CONDA_ENV_NAME"),
-                include_jobs=include_jobs,
-                restart=restart,
-                # append_to_sbatch_str=None,
-            )
+        default_grid = copy(MODEL_HP_DEFAULTS['all'])
+        default_grid.update(MODEL_HP_DEFAULTS.get(model, {}))
+        run_grid(
+            grid,
+            default_grid=default_grid,
+            sweep_name=model_sweep_name,
+            name_keys=SPECS.get("NAME_KEYS", []),
+            user=os.environ['USER'],
+            prefix=SPECS['COMMAND_PREFIX'],
+            gpus=SPECS['NUM_GPUS'],
+            cpus=SPECS["NUM_CPUS"],
+            nodes=((SPECS['NUM_GPUS'] - 1) // 8 + 1),
+            node_exclude=None,
+            account=account,
+            partition=partition,
+            DIR_PATH=SPECS["PROJECT_DIR"],
+            jobtime=('1:00:00' if debug else SPECS.get("JOBTIME", '24:00:00')),            
+            include_job_id=False,
+            hide_keys={},
+            hashname=False,
+            saveroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{SWEEP_NAME}",
+            logroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{SWEEP_NAME}",
+            mem_gb=SPECS["MEM_GB"],
+            requeue=True,
+            data_parallel=False,
+            comment=None,
+            volta=False,
+            volta32=False,
+            copy_env=True,
+            copy_dirs=[],
+            max_num_jobs=None,
+            num_copies=1,
+            job_id_start=1,
+            debug_mode=DEBUG_MODE,
+            dry_mode=DRY_MODE,
+            add_name='end',
+            dependencies=[],
+            repo_name="olmoe",
+            conda_env_name=SPECS.get("CONDA_ENV_NAME"),
+            include_jobs=include_jobs,
+            restart=restart,
+            # append_to_sbatch_str=None,
+        )
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

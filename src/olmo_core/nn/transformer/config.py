@@ -638,14 +638,29 @@ class TransformerConfig(Config):
     #             z_loss_weight=0.001,
     #         ),
     #     )
-    
+
     @classmethod
-    def olmo2_10M_moe(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
+    def olmo2_10M(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
         d_model = kwargs.pop("d_model", 336)
-        # hidden_sizes_list = [int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])]
+        use_moe = kwargs.pop("use_moe", False)
+        if not use_moe:
+            return cls.llama_like(
+                d_model=d_model,
+                vocab_size=vocab_size,
+                hidden_size_multiplier=1.5,
+                n_layers=kwargs.pop("n_layers", 8),
+                n_heads=kwargs.pop("n_heads", 7),
+                name=kwargs.pop("name", TransformerType.default),
+                block_name=kwargs.pop("block_name", TransformerBlockType.reordered_norm),
+                qk_norm=kwargs.pop("qk_norm", True),
+                rope_theta=kwargs.pop("rope_theta", 500_000),
+                layer_norm_eps=1e-6,
+                feed_forward=FeedForwardConfig(hidden_size=d_model * 4, bias=False),
+            )
         return cls.llama_like(
             d_model=d_model,
             vocab_size=vocab_size,
+            hidden_size_multiplier=1.5,
             n_layers=kwargs.pop("n_layers", 8),
             n_heads=kwargs.pop("n_heads", 7),
             name=kwargs.pop("name", TransformerType.moe),
@@ -653,7 +668,7 @@ class TransformerConfig(Config):
             qk_norm=kwargs.pop("qk_norm", True),
             rope_theta=kwargs.pop("rope_theta", 500_000),
             layer_norm_eps=1e-6,
-            feed_forward=FeedForwardConfig(hidden_size=d_model * 2, bias=False),
+            feed_forward=FeedForwardConfig(hidden_size=d_model * 4, bias=False),
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", 32),
@@ -666,11 +681,26 @@ class TransformerConfig(Config):
     
     
     @classmethod
-    def olmo2_20M_moe(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
+    def olmo2_20M(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
         d_model = kwargs.pop("d_model", 432)
+        use_moe = kwargs.pop("use_moe", False)
+        if not use_moe:
+            return cls.llama_like(
+                d_model=d_model,
+                vocab_size=vocab_size,
+                hidden_size_multiplier=1.5,
+                n_layers=kwargs.pop("n_layers", 9),
+                n_heads=kwargs.pop("n_heads", 9),
+                name=kwargs.pop("name", TransformerType.default),
+                block_name=kwargs.pop("block_name", TransformerBlockType.reordered_norm),
+                qk_norm=kwargs.pop("qk_norm", True),
+                rope_theta=kwargs.pop("rope_theta", 500_000),
+                layer_norm_eps=1e-6,
+            )
         return cls.llama_like(
             d_model=d_model,
             vocab_size=vocab_size,
+            hidden_size_multiplier=1.5,
             n_layers=kwargs.pop("n_layers", 9),
             n_heads=kwargs.pop("n_heads", 9),
             name=kwargs.pop("name", TransformerType.moe),
@@ -678,7 +708,6 @@ class TransformerConfig(Config):
             qk_norm=kwargs.pop("qk_norm", True),
             rope_theta=kwargs.pop("rope_theta", 500_000),
             layer_norm_eps=1e-6,
-            feed_forward=FeedForwardConfig(hidden_size=d_model * 2, bias=False),
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", 32),
@@ -690,11 +719,26 @@ class TransformerConfig(Config):
         )
         
     @classmethod
-    def olmo2_50M_moe(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
+    def olmo2_50M(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
         d_model = kwargs.pop("d_model", 640)
+        use_moe = kwargs.pop("use_moe", False)
+        if not use_moe:
+            return cls.llama_like(
+                d_model=d_model,
+                vocab_size=vocab_size,
+                hidden_size_multiplier=1.5,
+                n_layers=kwargs.pop("n_layers", 10),
+                n_heads=kwargs.pop("n_heads", 10),
+                name=kwargs.pop("name", TransformerType.default),
+                block_name=kwargs.pop("block_name", TransformerBlockType.reordered_norm),
+                qk_norm=kwargs.pop("qk_norm", True),
+                rope_theta=kwargs.pop("rope_theta", 500_000),
+                layer_norm_eps=1e-6,
+            )
         return cls.llama_like(
             d_model=d_model,
             vocab_size=vocab_size,
+            hidden_size_multiplier=1.5,
             n_layers=kwargs.pop("n_layers", 10),
             n_heads=kwargs.pop("n_heads", 10),
             name=kwargs.pop("name", TransformerType.moe),
@@ -702,7 +746,6 @@ class TransformerConfig(Config):
             qk_norm=kwargs.pop("qk_norm", True),
             rope_theta=kwargs.pop("rope_theta", 500_000),
             layer_norm_eps=1e-6,
-            feed_forward=FeedForwardConfig(hidden_size=d_model * 2, bias=False),
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", 32),
@@ -714,11 +757,26 @@ class TransformerConfig(Config):
         )
 
     @classmethod
-    def olmo2_100M_moe(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
+    def olmo2_100M(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
         d_model = kwargs.pop("d_model", 832)
+        use_moe = kwargs.pop("use_moe", False)
+        if not use_moe:
+            return cls.llama_like(
+                d_model=d_model,
+                vocab_size=vocab_size,
+                hidden_size_multiplier=1.5,
+                n_layers=kwargs.pop("n_layers", 12),
+                n_heads=kwargs.pop("n_heads", 13),
+                name=kwargs.pop("name", TransformerType.default),
+                block_name=kwargs.pop("block_name", TransformerBlockType.reordered_norm),
+                qk_norm=kwargs.pop("qk_norm", True),
+                rope_theta=kwargs.pop("rope_theta", 500_000),
+                layer_norm_eps=1e-6,
+            )
         return cls.llama_like(
             d_model=d_model,
             vocab_size=vocab_size,
+            hidden_size_multiplier=1.5,
             n_layers=kwargs.pop("n_layers", 12),
             n_heads=kwargs.pop("n_heads", 13),
             name=kwargs.pop("name", TransformerType.moe),
@@ -726,7 +784,6 @@ class TransformerConfig(Config):
             qk_norm=kwargs.pop("qk_norm", True),
             rope_theta=kwargs.pop("rope_theta", 500_000),
             layer_norm_eps=1e-6,
-            feed_forward=FeedForwardConfig(hidden_size=d_model * 2, bias=False),
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", [32]),
@@ -737,30 +794,6 @@ class TransformerConfig(Config):
             ),
         )
 
-    @classmethod
-    def olmo2_100M_moe_32_16(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
-        d_model = kwargs.pop("d_model", 832)
-        return cls.llama_like(
-            d_model=d_model,
-            vocab_size=vocab_size,
-            n_layers=kwargs.pop("n_layers", 12),
-            n_heads=kwargs.pop("n_heads", 13),
-            name=kwargs.pop("name", TransformerType.moe),
-            block_name=kwargs.pop("block_name", TransformerBlockType.moe_hybrid_reordered_norm),
-            qk_norm=kwargs.pop("qk_norm", True),
-            rope_theta=kwargs.pop("rope_theta", 500_000),
-            layer_norm_eps=1e-6,
-            feed_forward=FeedForwardConfig(hidden_size=d_model * 2, bias=False),
-            feed_forward_moe=MoEConfig(
-                name=MoEType.default,
-                num_experts_list=kwargs.pop("num_experts_list", [32, 16]),
-                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
-                routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4, 2])],
-                lb_loss_weight=0.01,
-                z_loss_weight=0.001,
-            ),
-        )
-    
     @classmethod
     def olmoe_1B_7B(cls, vocab_size: int, **kwargs) -> "TransformerConfig":
         d_model = kwargs.pop("d_model", 2048)

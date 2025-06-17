@@ -211,10 +211,8 @@ class MoEBase(nn.Module):
     def compute_metrics(
         self, reset: bool = True
     ) -> Dict[str, Tuple[torch.Tensor, Optional["ReduceType"]]]:
-        for router in self.routers_list:
-            metrics = router.compute_metrics(reset=reset)
-            log.info("ROUTER METRICS")
-            log.info(metrics)
+        for i, router in enumerate(self.routers_list):
+            metrics = router.compute_metrics(reset=reset, prefix=f"router {i}")
             return metrics
         # return 
         # return self.router.compute_metrics(reset=reset)

@@ -3,35 +3,78 @@
 
 import os
 
-from olmo_core.data import (
-    DataMix,
-    TokenizerConfig,
-)
-from olmo_core.nn.transformer import (
-    TransformerConfig,
-)
-from olmo_core.optim import CosWithWarmup, OptimGroupOverride, AdamWConfig
-
 #  = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
 
 DEFAULT_DIR_PATH = '/'.join(os.path.normpath(os.path.realpath(__file__)).split(os.path.sep)[:-3])
 
-
-MODEL_CONFIG_LOOKUP = {
-    "olmo2_100M_moe": TransformerConfig.olmo2_100M_moe,
+MODEL_HP_DEFAULTS = {
+    "all": {
+        "global_batch_size": [512],
+        "sequence_length": [2048],
+        "train_module": {
+            "optim": {
+                "weight_decay": [0.1],
+            },
+            "scheduler": {
+                "units": ["steps"],
+                "warmup_steps": [2000],
+            },
+        },
+        "trainer": {
+            "max_duration": {
+                "unit": ["tokens"],
+            },
+        },
+    },
+    "olmo2_10M": {
+        "train_module": {
+            "optim": {
+                "lr": [4e-3],
+            },
+        },
+        "trainer": {
+            "max_duration": {
+                "value": [200000000],
+            },
+        },
+    },
+    "olmo2_20M": {
+        "train_module": {
+            "optim": {
+                "lr": [4e-3],
+            },
+        },
+        "trainer": {
+            "max_duration": {
+                "value": [400000000],
+            },
+        },
+    },
+    "olmo2_50M": {
+        "train_module": {
+            "optim": {
+                "lr": [4e-3],
+            },
+        },
+        "trainer": {
+            "max_duration": {
+                "value": [1000000000],
+            },
+        },
+    },
+    "olmo2_100M": {
+        "train_module": {
+            "optim": {
+                "lr": [4e-3],
+            },
+        },
+        "trainer": {
+            "max_duration": {
+                "value": [2000000000],
+            },
+        },
+    }
 }
-
-TOKENIZER_LOOKUP = {
-    "dolma2": TokenizerConfig.dolma2,
-    "gpt_neox_olmo_dolma_v1_5": TokenizerConfig.gpt_neox_olmo_dolma_v1_5,
-}
-
-DATAMIX_LOOKUP = {
-    "OLMoE_mix_1124": DataMix.OLMoE_mix_1124,
-    "OLMoE_mix_0824": DataMix.OLMoE_mix_0824,
-    "v3_small_ppl_validation": DataMix.v3_small_ppl_validation,
-}
-
 
 PROJECT_SPECS = {
     "margsli": {
@@ -44,37 +87,95 @@ PROJECT_SPECS = {
         "PROJECT_DIR": DEFAULT_DIR_PATH,
         "SLURM_ACCOUNT": "zlab",
         "SLURM_PARTITION": "gpu-a40,gpu-l40",
-        "COMMAND_PREFIX": f"python {DEFAULT_DIR_PATH}/ml/scripts/single_train_launch.py",
+        # "COMMAND_PREFIX": f"python {DEFAULT_DIR_PATH}/ml/scripts/single_train_launch.py",
+        "COMMAND_PREFIX": f"{DEFAULT_DIR_PATH}/ml/scripts/single_train_launch.py",
         "NUM_GPUS": 4,
         "MODEL": [],
         "DATAROOT": "https://olmo-data.org/",
         "DATA_DIR": "/gscratch/zlab/snehark/OLMo-core/data/",
-        "NAME_KEYS": ["model_name"],
+        "NAME_KEYS": [],
     },
     "snehark": {
         ## TODO @snehark: Update these paths to your local setup
     }
 }
 
+BATCH_SIZE = 512
 HARDWARE_SPECS_DICT = {
-    "olmo2_100M_moe": { 
+    "olmo2_10M": { 
         "gpu-l40": {
             "NUM_GPUS": 4,
             "NUM_CPUS": 4,
             "MEM_GB": 128,
-            "JOBTIME": '12:00:00',
+            # "per_gpu_batch_size": 32,
         }, 
         "gpu-a40": {
             "NUM_GPUS": 4,
-            "NUM_CPUS": 3,
+            "NUM_CPUS": 4,
             "MEM_GB": 128,
-            "per_gpu_batch_size": 8,
+            "per_gpu_batch_size": 16,
         }, 
         "gpu-a100": {
-            "NUM_GPUS": 1,
+            "NUM_GPUS": 4,
             "NUM_CPUS": 4,
             "MEM_GB": 128,
         }, 
-
+    },
+    "olmo2_20M": { 
+        "gpu-l40": {
+            "NUM_GPUS": 4,
+            "NUM_CPUS": 4,
+            "MEM_GB": 128,
+            "per_gpu_batch_size": 32,
+        }, 
+        "gpu-a40": {
+            "NUM_GPUS": 4,
+            "NUM_CPUS": 4,
+            "MEM_GB": 128,
+            "per_gpu_batch_size": 32,
+        }, 
+        "gpu-a100": {
+            "NUM_GPUS": 4,
+            "NUM_CPUS": 4,
+            "MEM_GB": 128,
+        }, 
+    },
+    "olmo2_50M": { 
+        "gpu-l40": {
+            "NUM_GPUS": 4,
+            "NUM_CPUS": 4,
+            "MEM_GB": 128,
+            "per_gpu_batch_size": 32,
+        }, 
+        "gpu-a40": {
+            "NUM_GPUS": 4,
+            "NUM_CPUS": 4,
+            "MEM_GB": 128,
+            "per_gpu_batch_size": 32,
+        }, 
+        "gpu-a100": {
+            "NUM_GPUS": 4,
+            "NUM_CPUS": 4,
+            "MEM_GB": 128,
+        }, 
+    },
+    "olmo2_100M": { 
+        "gpu-l40": {
+            "NUM_GPUS": 4,
+            "NUM_CPUS": 4,
+            "MEM_GB": 128,
+            "per_gpu_batch_size": 32,
+        }, 
+        "gpu-a40": {
+            "NUM_GPUS": 4,
+            "NUM_CPUS": 4,
+            "MEM_GB": 128,
+            "per_gpu_batch_size": 32,
+        }, 
+        "gpu-a100": {
+            "NUM_GPUS": 4,
+            "NUM_CPUS": 4,
+            "MEM_GB": 128,
+        }, 
     }
 }
