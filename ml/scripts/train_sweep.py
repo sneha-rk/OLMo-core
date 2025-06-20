@@ -10,8 +10,8 @@ SWEEP_NAME_DEFAULT = ''
 project = 'moe'
 MODELS = [
     # 'olmo2_100M',
-    'olmo2_50M',
-    'olmo2_20M',
+    # 'olmo2_50M',
+    # 'olmo2_20M',
     'olmo2_10M',
 ]
 
@@ -23,8 +23,11 @@ def main(
     dry_mode=False,
     account=None, 
     partition=None,
-    restart=False,
+    gpus=None,
+    cpus=None,
+    mem=None,
     include_jobs=None,
+    **kwargs,
 ):
     if account is None or partition is None:
         raise RuntimeError("Must specify account and partition")
@@ -39,6 +42,7 @@ def main(
     for model in MODELS:
         model_sweep_name = f"{SWEEP_NAME}_{model}" if add_model_to_name == 'end' else SWEEP_NAME
         SPECS = copy(PROJECT_SPECS[os.environ.get('USER')])
+        SPECS.update(HARDWARE_SPECS_DICT['all'])
         SPECS.update(HARDWARE_SPECS_DICT[model][partition])
         grid = {
             # main_grid is the top-level grid, the sweep will run over all combinations of these hyperparameters, 
@@ -47,22 +51,21 @@ def main(
                 "model_name": [model],
                 "save_root": [f"{SPECS['DEFAULT_SAVE_PATH']}/{SWEEP_NAME}"],
                 # "per_gpu_batch_size": [SPECS["per_gpu_batch_size"]],
-                "per_gpu_batch_size": [32, 16],
+                "per_gpu_batch_size": [8],
                 'train_module': {
                     'optim': {
-                        'lr': [4e-3], #, 2e-3, 1e-3],
+                        'lr': [2e-2, 4e-2],
                     },
                 },
                 "trainer": {
                     "max_duration": {
-                        "value": [100], #just testing
-                        # "value": [200000000, 2000000000], # 200M tokens
+                        "value": [20000000], #just testing
                     },
                 },
             },
             # allows you to bundle multiple hyperparameters together
             "subgrids": {
-                # "e1x1c1": {"moe_num_experts_list": ["1"]},
+                "e1x1c1": {"moe_num_experts_list": ["1"]},
                 # "e4x1c1": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
                 # "e8x1c1": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
                 "e16x1c1": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
@@ -83,10 +86,9 @@ def main(
             default_grid=default_grid,
             sweep_name=model_sweep_name,
             name_keys=SPECS.get("NAME_KEYS", []),
-            user=os.environ['USER'],
             prefix=SPECS['COMMAND_PREFIX'],
-            gpus=SPECS['NUM_GPUS'],
-            cpus=SPECS["NUM_CPUS"],
+            gpus=(gpus or SPECS['NUM_GPUS']),
+            cpus=(cpus or SPECS["NUM_CPUS"]),
             nodes=((SPECS['NUM_GPUS'] - 1) // 8 + 1),
             node_exclude=None,
             account=account,
@@ -94,11 +96,10 @@ def main(
             DIR_PATH=SPECS["PROJECT_DIR"],
             jobtime=('1:00:00' if debug else SPECS.get("JOBTIME", '24:00:00')),            
             include_job_id=False,
-            hide_keys={},
             hashname=False,
             saveroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{SWEEP_NAME}",
             logroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{SWEEP_NAME}",
-            mem_gb=SPECS["MEM_GB"],
+            mem_gb=(mem or SPECS["MEM_GB"]),
             requeue=True,
             data_parallel=False,
             comment=None,
@@ -111,12 +112,10 @@ def main(
             job_id_start=1,
             debug_mode=DEBUG_MODE,
             dry_mode=DRY_MODE,
-            add_name='end',
             dependencies=[],
             repo_name="olmoe",
             conda_env_name=SPECS.get("CONDA_ENV_NAME"),
             include_jobs=include_jobs,
-            restart=restart,
             # append_to_sbatch_str=None,
         )
 
@@ -128,8 +127,10 @@ if __name__ == '__main__':
     parser.add_argument('--dry-mode', action='store_true')
     parser.add_argument('-a', '--slurm-account', type=str)
     parser.add_argument('-p', '--slurm-partition', type=str)
+    parser.add_argument('--gpus', type=int)
+    parser.add_argument('--cpus', type=int)
+    parser.add_argument('--mem', type=str)
     parser.add_argument('-i', '--include-jobs', type=str, default=None)
-    parser.add_argument('--restart', action='store_true')
 
     args = parser.parse_args()
 
@@ -140,6 +141,8 @@ if __name__ == '__main__':
         dry_mode=args.dry_mode, 
         account=args.slurm_account, 
         partition=args.slurm_partition,
-        restart=args.restart,
+        gpus=args.gpus,
+        cpus=args.cpus,
+        mem=args.mem,
         include_jobs=(args.include_jobs.split(",") if args.include_jobs else None),
     )

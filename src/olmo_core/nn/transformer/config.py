@@ -696,6 +696,7 @@ class TransformerConfig(Config):
                 qk_norm=kwargs.pop("qk_norm", True),
                 rope_theta=kwargs.pop("rope_theta", 500_000),
                 layer_norm_eps=1e-6,
+                feed_forward=FeedForwardConfig(hidden_size=d_model * 4, bias=False),
             )
         return cls.llama_like(
             d_model=d_model,
@@ -708,6 +709,7 @@ class TransformerConfig(Config):
             qk_norm=kwargs.pop("qk_norm", True),
             rope_theta=kwargs.pop("rope_theta", 500_000),
             layer_norm_eps=1e-6,
+            feed_forward=FeedForwardConfig(hidden_size=d_model * 4, bias=False),
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", 32),
@@ -734,6 +736,7 @@ class TransformerConfig(Config):
                 qk_norm=kwargs.pop("qk_norm", True),
                 rope_theta=kwargs.pop("rope_theta", 500_000),
                 layer_norm_eps=1e-6,
+                feed_forward=FeedForwardConfig(hidden_size=d_model * 4, bias=False),
             )
         return cls.llama_like(
             d_model=d_model,
@@ -746,6 +749,7 @@ class TransformerConfig(Config):
             qk_norm=kwargs.pop("qk_norm", True),
             rope_theta=kwargs.pop("rope_theta", 500_000),
             layer_norm_eps=1e-6,
+            feed_forward=FeedForwardConfig(hidden_size=d_model * 4, bias=False),
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", 32),
@@ -772,6 +776,7 @@ class TransformerConfig(Config):
                 qk_norm=kwargs.pop("qk_norm", True),
                 rope_theta=kwargs.pop("rope_theta", 500_000),
                 layer_norm_eps=1e-6,
+                feed_forward=FeedForwardConfig(hidden_size=d_model * 4, bias=False),
             )
         return cls.llama_like(
             d_model=d_model,
@@ -784,6 +789,7 @@ class TransformerConfig(Config):
             qk_norm=kwargs.pop("qk_norm", True),
             rope_theta=kwargs.pop("rope_theta", 500_000),
             layer_norm_eps=1e-6,
+            feed_forward=FeedForwardConfig(hidden_size=d_model * 4, bias=False),
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", [32]),

@@ -87,7 +87,6 @@ PROJECT_SPECS = {
         "PROJECT_DIR": DEFAULT_DIR_PATH,
         "SLURM_ACCOUNT": "zlab",
         "SLURM_PARTITION": "gpu-a40,gpu-l40",
-        # "COMMAND_PREFIX": f"python {DEFAULT_DIR_PATH}/ml/scripts/single_train_launch.py",
         "COMMAND_PREFIX": f"{DEFAULT_DIR_PATH}/ml/scripts/single_train_launch.py",
         "NUM_GPUS": 4,
         "MODEL": [],
@@ -102,80 +101,52 @@ PROJECT_SPECS = {
 
 BATCH_SIZE = 512
 HARDWARE_SPECS_DICT = {
+    "all": {
+        "NUM_GPUS": 4,
+        "NUM_CPUS": 4,
+        "MEM_GB": 128,
+    },
     "olmo2_10M": { 
         "gpu-l40": {
-            "NUM_GPUS": 4,
-            "NUM_CPUS": 4,
-            "MEM_GB": 128,
             # "per_gpu_batch_size": 32,
         }, 
         "gpu-a40": {
-            "NUM_GPUS": 4,
-            "NUM_CPUS": 4,
-            "MEM_GB": 128,
             "per_gpu_batch_size": 16,
         }, 
         "gpu-a100": {
-            "NUM_GPUS": 4,
-            "NUM_CPUS": 4,
-            "MEM_GB": 128,
+        }, 
+        "gpu-rtx6k": {
+            "per_gpu_batch_size": 16,
         }, 
     },
     "olmo2_20M": { 
         "gpu-l40": {
-            "NUM_GPUS": 4,
-            "NUM_CPUS": 4,
-            "MEM_GB": 128,
             "per_gpu_batch_size": 32,
         }, 
         "gpu-a40": {
-            "NUM_GPUS": 4,
-            "NUM_CPUS": 4,
-            "MEM_GB": 128,
-            "per_gpu_batch_size": 32,
+            "per_gpu_batch_size": 16,
         }, 
         "gpu-a100": {
-            "NUM_GPUS": 4,
-            "NUM_CPUS": 4,
-            "MEM_GB": 128,
         }, 
     },
     "olmo2_50M": { 
         "gpu-l40": {
-            "NUM_GPUS": 4,
-            "NUM_CPUS": 4,
-            "MEM_GB": 128,
             "per_gpu_batch_size": 32,
         }, 
         "gpu-a40": {
-            "NUM_GPUS": 4,
-            "NUM_CPUS": 4,
-            "MEM_GB": 128,
-            "per_gpu_batch_size": 32,
+            "per_gpu_batch_size": 16,
         }, 
         "gpu-a100": {
-            "NUM_GPUS": 4,
-            "NUM_CPUS": 4,
-            "MEM_GB": 128,
         }, 
     },
     "olmo2_100M": { 
         "gpu-l40": {
-            "NUM_GPUS": 4,
-            "NUM_CPUS": 4,
-            "MEM_GB": 128,
             "per_gpu_batch_size": 32,
         }, 
         "gpu-a40": {
-            "NUM_GPUS": 4,
-            "NUM_CPUS": 4,
-            "MEM_GB": 128,
-            "per_gpu_batch_size": 32,
+            "per_gpu_batch_size": 16,
         }, 
         "gpu-a100": {
-            "NUM_GPUS": 4,
-            "NUM_CPUS": 4,
-            "MEM_GB": 128,
         }, 
     }
 }
