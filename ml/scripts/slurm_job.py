@@ -89,6 +89,7 @@ usr1_handler () {{
     wait "$CHILD"
 }}
 
+
 trap 'int_handler' INT
 trap 'usr1_handler' USR1
 trap 'term_handler' TERM
@@ -110,7 +111,7 @@ source ~/.bashrc
 echo "SLURM_PROCID"=$SLURM_PROCID
 echo "node-list: $SLURM_JOB_NODELIST"
 
-export MASTER_PORT=$(( ($(stringsum $RUN_ID) % 10000) + 10000 ))
+export MASTER_PORT={job_port}
 
 export WORLD_SIZE=$(($NUM_GPUS))
 echo "MASTER_PORT"=$MASTER_PORT
@@ -122,22 +123,24 @@ echo "MASTER_ADDR="$MASTER_ADDR
 export WORLD_SIZE=$SLURM_NTASKS
 echo "WORLD_SIZE="$WORLD_SIZE
 export RANK=$SLURM_PROCID
-export FS_LOCAL_RANK=$SLURM_PROCID
 export LOCAL_WORLD_SIZE=$SLURM_NTASKS_PER_NODE
 export LOCAL_RANK=$SLURM_LOCALID
 export NODE_RANK=$((($RANK - $LOCAL_RANK) / $LOCAL_WORLD_SIZE))
 # ******************************************************************************************
 
-# zoom zoom - recommended from lightning
+# zoom zoom - recommended from lightning, copied from open_lm
 export NCCL_NSOCKS_PERTHREAD=4
 export NCCL_SOCKET_NTHREADS=2
 export NCCL_MIN_CHANNELS=32
 ######################
 
+# olmo-core specific
+export OLMO_SHARED_FS=1
+
 cd {NEW_DIR_PATH}
 export PYTHONPATH={SAVE_ROOT}/{repo_name}:$PYTHONPATH
 if [[ "$SLURM_PROCID" == "0" ]]; then 
-    CUDA_LAUNCH_BLOCKING=1 torchrun {cmd} 
+    CUDA_LAUNCH_BLOCKING=1 torchrun --nproc-per-node=gpu --rdzv-endpoint=$MASTER_ADDR:$MASTER_PORT {cmd} 
 fi
 echo "# -------- FINISHED CALL TO SRUN --------"
 echo
@@ -232,7 +235,6 @@ def run_grid(
     default_grid={},
     sweep_name="",
     name_keys=[],
-    user=os.environ['USER'],
     prefix=None,
     gpus=1,
     cpus=10,
@@ -243,7 +245,6 @@ def run_grid(
     DIR_PATH="",
     jobtime='01:59:59',
     include_job_id=False,
-    hide_keys={},
     hashname=False,
     saveroot='',
     logroot='',
@@ -260,12 +261,11 @@ def run_grid(
     job_id_start=1,
     debug_mode=False,
     dry_mode=False,
-    add_name=None,
     dependencies=[],
     repo_name="code",
     conda_env_name=None,
     include_jobs=None,
-    restart=False,
+    sweep_port_start=None,
 ):
     """Generates full commands from a grid.
 
@@ -280,7 +280,6 @@ def run_grid(
         _hs=X_). By default, any key with more than one value will also be
         included in the model filename.
     sweep_name -- (str) name of the sweep
-    user -- (str) user name to use for save directory (default $USER)
     prefix -- (str) base command to run
     hashname -- (bool) if True, uses a hash of the parameters as the
         folder. Sometimes necessary for long commands (default False).
@@ -292,8 +291,6 @@ def run_grid(
         save root, and uses this to run the jobs
     copy_dirs -- (list) list of additional directories to copy
     max_num_jobs -- (int) maximum number of jobs
-    add_name -- (str) "end" or None, indicating whether to
-        add the name to the command and if so, where
     """
     def dict_update(d, u):
         """
@@ -461,11 +458,12 @@ def run_grid(
     # random.shuffle(final_jobs)
     # remove job array list if it already existed
     jobs_path = []
+    sweep_port_start = sweep_port_start or random.randint(10000, 20000)
     if debug_mode and len(final_jobs) > 1:
         final_jobs = final_jobs[:1]
     elif include_jobs:
         final_jobs = [final_jobs[i] for i in include_jobs]
-    for job in final_jobs:
+    for i, job in enumerate(final_jobs):
         jobs_path.append(
             create_job_files(
                 sweep_name,
@@ -479,6 +477,7 @@ def run_grid(
                 requeue=requeue,
                 NEW_DIR_PATH=NEW_DIR_PATH,
                 repo_name=repo_name,
+                job_port=sweep_port_start+i,
             )
         )
     print(final_jobs)
@@ -527,6 +526,7 @@ def create_job_files(
     requeue=False,
     NEW_DIR_PATH="",
     repo_name="",
+    job_port=None,
 ):
     """Creates job folders and scripts"""
     
@@ -537,6 +537,7 @@ def create_job_files(
     bash('mkdir -p ' + LOG)
     SCRIPTFILE = os.path.join(SAVE, 'run.sh')
     ARGS_STR = ' '.join(job_args)
+    job_port = job_port or random.randint(10000, 20000)
 
     if data_parallel or not gpus:
         ntasks_per_node = 1

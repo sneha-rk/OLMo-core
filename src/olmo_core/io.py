@@ -636,6 +636,7 @@ def _http_file_size(url: str) -> int:
 
 
 @retriable(
+    max_attempts=10,
     retry_condition=lambda exc: (
         isinstance(exc, requests.exceptions.HTTPError)
         and exc.response is not None
