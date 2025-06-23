@@ -12,7 +12,7 @@ import os
 import random
 import subprocess
 import sys
-
+from utils import dict_update
 
 # BASH_IF_CLAUSE = """
 # if [[ "$SLURM_ARRAY_TASK_ID" == "{index}" ]]; then
@@ -22,7 +22,7 @@ import sys
 
 BASH_IF_CLAUSE = """
 if [[ "$SLURM_ARRAY_TASK_ID" == "{index}" ]]; then
-    bash {SAVE}/run.sh > {SAVE}/stdout.$SLURM_ARRAY_TASK_ID 2> {SAVE}/stderr.$SLURM_ARRAY_TASK_ID
+    bash {SAVE}/run.sh >> {SAVE}/stdout 2>> {SAVE}/stderr
 fi
 """
 SLRM_JOB_ARRAY_TEMPLATE = """
@@ -148,82 +148,6 @@ nvidia-smi
 
 """
 
-# CHILD="$!"
-# wait "$CHILD"
-# sleep 30
-
-
-# SH_TEMPLATE = """
-# #!/bin/bash
-# set -e
-
-# source ~/.bashrc
-
-# # stores the child process
-# CHILD=""
-
-# # handles a TERM signal
-# term_handler () {{
-#     # catch and ignore TERM. we get multiple terms during shutdown, so best
-#     # to just do nothing
-#     # but still keep going with the python process
-#     wait "$CHILD"
-# }}
-
-# # handles an interrupt (aka ctrl-C)
-# int_handler () {{
-#     # propagate a ctrl-C to the python process
-#     kill -s INT "$CHILD"
-#     wait "$CHILD"
-# }}
-
-# # handles a USR1, which signals preemption or job time is up
-# usr1_handler () {{
-#     echo "SLURM signaling preemption/times up (SLURM_PROCID $SLURM_PROCID)."
-#     kill -s INT "$CHILD"  # send ctrl-c to python
-#     if {SHOULD_REQUEUE} && [ "$SLURM_PROCID" -eq "0" ]; then
-#         echo "Waiting 5s and resubmitting..."
-#         sleep 5
-#         echo "Resubmitting..."
-#         scontrol requeue $SLURM_JOB_ID
-#     fi
-#     wait "$CHILD"
-# }}
-
-# trap 'int_handler' INT
-# trap 'usr1_handler' USR1
-# trap 'term_handler' TERM
-
-# # Uncommenting these two lines can help with identifying hangs
-# # export NCCL_DEBUG=INFO
-# # export PYTHONFAULTHANDLER=1
-
-# # setting this this can also help with hangs
-# # NCCL_LL_THRESHOLD=0
-
-# export MASTER_PORT=$(( ($(stringsum $RUN_ID) % 10000) + 10000 ))
-
-# export WORLD_SIZE=$(($NUM_GPUS))
-# echo "MASTER_PORT"=$MASTER_PORT
-
-# master_addr=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-# export MASTER_ADDR=$master_addr
-# echo "MASTER_ADDR="$MASTER_ADDR
-
-# cd {NEW_DIR_PATH}
-# export PYTHONPATH={SAVE_ROOT}/{repo_name}:$PYTHONPATH
-# if [[ "$SLURM_PROCID" == "0" ]]; then 
-#     CUDA_LAUNCH_BLOCKING=1 torchrun {cmd} &
-# fi 
-# echo "# -------- FINISHED CALL TO SRUN --------"
-# echo
-# nvidia-smi
-
-# CHILD="$!"
-# wait "$CHILD"
-# sleep 30
-# """
-
 
 def sha1(string):
     """Compute the sha1 hexdigest of the string."""
@@ -234,6 +158,7 @@ def run_grid(
     grid,
     default_grid={},
     sweep_name="",
+    specs={},
     name_keys=[],
     prefix=None,
     gpus=1,
@@ -252,8 +177,6 @@ def run_grid(
     requeue=False,
     data_parallel=False,
     comment=None,
-    volta=False,
-    volta32=False,
     copy_env=True,
     copy_dirs=[],
     max_num_jobs=None,
@@ -264,7 +187,8 @@ def run_grid(
     dependencies=[],
     repo_name="code",
     conda_env_name=None,
-    include_jobs=None,
+    include_jobs_indices=None,
+    filter_succeeded=True,
     sweep_port_start=None,
 ):
     """Generates full commands from a grid.
@@ -284,31 +208,25 @@ def run_grid(
     hashname -- (bool) if True, uses a hash of the parameters as the
         folder. Sometimes necessary for long commands (default False).
     dataparallel -- (bool) set to True if running with nn.DataParallel
-    volta -- (bool) set to True to request a volta machine
-    volta32 -- (bool) set to True to request a 32gb volta machine
     comment -- you need to add a text comment to use priority partition
     copy_env -- (bool) if True, copies local directory components to the
         save root, and uses this to run the jobs
     copy_dirs -- (list) list of additional directories to copy
     max_num_jobs -- (int) maximum number of jobs
+    num_copies -- (int) number of copies of each job to run
+    job_id_start -- (int) starting job id for numbering jobs
+    debug_mode -- (bool) if True, runs only one job for debugging
+    dry_mode -- (bool) if True, does not actually run the jobs, just prints
+        the commands that would be run
+    dependencies -- (list) list of job ids that this job depends on
+    repo_name -- (str) name of the repository to copy
+    conda_env_name -- (str) name of the conda environment to activate
+    include_jobs_indices -- (list) list of job indices to include in the sweep
+    filter_succeeded -- (bool) if True, filters out jobs that have already
+        succeeded (i.e. have a log file with "got exitcode: 0")
+    sweep_port_start -- (int) starting port for the sweep, if None, a random
+        port will be chosen for each job
     """
-    def dict_update(d, u):
-        """
-        Recursively update a dict with another dict.
-        This is a deep update, meaning that if a key in the first dict
-        has a dict as its value, and the second dict has a key with
-        the same name, the value in the first dict will be updated
-        with the value from the second dict.
-        Keys in the second dict are the ones iterated over. 
-        If the value in the second dict is not a dict, it will
-        overwrite the value in the first dict.
-        """
-        for k, v in u.items():
-            if isinstance(v, collections.abc.Mapping):
-                d[k] = dict_update(d.get(k, {}), v)
-            else:
-                d[k] = v
-        return d
     
     def get_name_keys(dictionary, parents_key_list=[], name_keys=[], use_all_keys=False):
         items = []
@@ -323,7 +241,7 @@ def run_grid(
                     for vd in value:
                         if isinstance(vd, collections.abc.Mapping):
                             items.extend(get_name_keys(vd, new_key_list))
-                elif len(value) > 1:
+                elif len(value) > 1 or use_all_keys:
                     items.append('.'.join(new_key_list))
         items = list(set(items + name_keys))  # remove duplicates
         return items
@@ -344,7 +262,6 @@ def run_grid(
                 if ' ' in value:
                     value = value.replace(' --', '_').replace(' -', '_')
                     value = value.replace(' ', '=')
-            # name_list.append('{}={}'.format('.'.join(key_list), str(d)))
             name_list.append('{}={}'.format(short_key, str(value)))
         return '_'.join(name_list)
     
@@ -353,7 +270,7 @@ def run_grid(
         args = {}
         for k, v in d.items():
             if isinstance(v, collections.abc.Mapping):
-                args.update(unroll_args(v, f'{prefix}.{k}' if prefix else k))
+                args = dict_update(args, unroll_args(v, f'{prefix}.{k}' if prefix else k))
             else:
                 if prefix:
                     args[f"{prefix}.{k}"] = v
@@ -361,6 +278,17 @@ def run_grid(
                     args[k] = v
         return args
     
+
+    def check_if_job_succeeded_before(job_name, save_root):
+        """Check if a job has already been run before."""
+        wandb_log_path = os.path.join(save_root, job_name, 'wandb', 'wandb', 'latest-run', 'logs', 'debug.log')
+        if os.path.exists(wandb_log_path):
+            with open(wandb_log_path, 'r') as f:
+                s = f.read()
+                if "got exitcode: 0" in s:
+                    print(f"Job {job_name} already done before, skipping.")
+                    return True
+        return False
 
     if not prefix:
         raise ValueError('Need prefix command')
@@ -381,12 +309,10 @@ def run_grid(
                 yield dict(zip(d.keys(), i))
 
     all_permutation_dicts = {}
-    main_grid = deepcopy(default_grid)
-    main_grid.update(grid["main_grid"])
+    main_grid = dict_update(deepcopy(default_grid), grid["main_grid"])
     for subgrid_name, subgrid in grid["subgrids"].items():
-        subgrid_merged = deepcopy(main_grid)
-        subgrid_merged.update(subgrid)
-        print(subgrid_merged)
+        subgrid_merged = dict_update(deepcopy(main_grid), subgrid)
+        # print(subgrid_merged)
         all_permutation_dicts[subgrid_name] = list(c_prod(subgrid_merged))
         name_key_lists[subgrid_name] = get_name_keys(subgrid_merged, name_keys=name_keys)
 
@@ -414,7 +340,7 @@ def run_grid(
                 name = make_job_name(name_key_list, cmd_args, sweep_name=sweep_name, subgrid_name=subgrid_name)
                 name = name[:cutoff] if cutoff else name
                 name = sha1(name) if hashname else name
-                cmd = f"{prefix} {name} {gpus} " + ' '.join([f'--{k}={v}' for k, v in cmd_args.items()])
+                cmd = f"{prefix} {name} " + ' '.join([f'--{k}={v}' for k, v in cmd_args.items()])
                 if include_job_id:
                     name += '/_jobid=' + str(job_id)
                 final_jobs.append(Job(cmd=cmd, name=name))
@@ -434,10 +360,10 @@ def run_grid(
     #     print('Aborting...')
     #     sys.exit(-1)
 
-    if copy_env:
+    # Copy the directory if needed
+    to_copy = [] + copy_dirs
+    if copy_env and to_copy:
         bash('mkdir -p ' + os.path.join(SAVE_ROOT, repo_name))
-        to_copy = []
-        to_copy += copy_dirs
         for c in to_copy:
             c_head, _ = os.path.split(c)
             # if subfolder, copy folder then subfolder
@@ -448,21 +374,25 @@ def run_grid(
     else:
         NEW_DIR_PATH = DIR_PATH
 
-    # Dump grid to grid file
+    # Dump grid, specs, jobs to files
     if not os.path.exists(SAVE_ROOT):
         os.makedirs(SAVE_ROOT)
-    with open(os.path.join(SAVE_ROOT, 'grid.json'), 'w') as f:
-        json.dump(grid, f)
+        with open(os.path.join(SAVE_ROOT, 'grid.json'), 'w') as f:
+            json.dump(grid, f)
+        with open(os.path.join(SAVE_ROOT, 'specs.json'), 'w') as f:
+            json.dump(specs, f)
+        with open(os.path.join(SAVE_ROOT, 'jobs_lookup.jsonl'), 'w') as f:
+            for i, job in enumerate(final_jobs):
+                f.write(json.dumps({'i': i, 'name': job.name, 'cmd': job.cmd}) + '\n')
 
-    # shuffle jobs so we're not systematically doing them in any order
-    # random.shuffle(final_jobs)
-    # remove job array list if it already existed
     jobs_path = []
     sweep_port_start = sweep_port_start or random.randint(10000, 20000)
     if debug_mode and len(final_jobs) > 1:
         final_jobs = final_jobs[:1]
-    elif include_jobs:
-        final_jobs = [final_jobs[i] for i in include_jobs]
+    elif include_jobs_indices:
+        final_jobs = [final_jobs[i] for i in include_jobs_indices]
+    if filter_succeeded:
+        final_jobs = [job for job in final_jobs if not check_if_job_succeeded_before(job.name, SAVE_ROOT)]
     for i, job in enumerate(final_jobs):
         jobs_path.append(
             create_job_files(
@@ -496,8 +426,6 @@ def run_grid(
         requeue=requeue,
         data_parallel=data_parallel,
         comment=comment,
-        volta=volta,
-        volta32=volta32,
         NEW_DIR_PATH=NEW_DIR_PATH,
         jobs_path=jobs_path,
         dependencies=dependencies,
@@ -566,15 +494,17 @@ def submit_array_jobs(
     requeue=False,
     data_parallel=False,
     comment=None,
-    volta=False,
-    volta32=False,
     NEW_DIR_PATH="",
     jobs_path=[],
     dependencies=[],
     conda_env_name=None,
     append_to_sbatch_str=None,
-):
-    SLURMFILE = os.path.join(SAVE_ROOT, 'run.slrm')
+):  
+    i = 0
+    SLURMFILE = os.path.join(SAVE_ROOT, f'run_{i}.slrm')
+    while os.path.exists(SLURMFILE):
+        i += 1
+        SLURMFILE = os.path.join(SAVE_ROOT, f'run_{i}.slrm')
     if data_parallel or not gpus:
         ntasks_per_node = 1
     else:
@@ -588,9 +518,6 @@ def submit_array_jobs(
         SBATCH_EXTRAS.append('#SBATCH --exclude ' + str(node_exclude))
 
     constraints = []
-
-    if volta32:
-        constraints.append('volta32gb')
 
     total_num_jobs = len(jobs_path) - 1
 

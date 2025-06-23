@@ -54,11 +54,15 @@ from constants import (
     PROJECT_SPECS,
 )
 
+
 MODEL_CONFIG_LOOKUP = {
     "olmo2_10M": TransformerConfig.olmo2_10M,
     "olmo2_20M": TransformerConfig.olmo2_20M,
     "olmo2_50M": TransformerConfig.olmo2_50M,
     "olmo2_100M": TransformerConfig.olmo2_100M,
+    "olmo2_200M": TransformerConfig.olmo2_200M,
+    "olmo2_400M": TransformerConfig.olmo2_400M,
+    "olmo2_1B": TransformerConfig.olmo2_1B,
 }
 
 TOKENIZER_LOOKUP = {
@@ -89,7 +93,6 @@ class ExperimentConfig(Config):
 
 def build_config(
         run_name: str, 
-        num_gpus: int = torch.cuda.device_count(),
         tokenizer_name: str = "dolma2", 
         model_name: str = "olmo2_100M_moe_32_16",
         train_datamix_name: str = "OLMoE_mix_0824",
@@ -272,7 +275,6 @@ def main(
         
         config = build_config(
             args.run_name, 
-            num_gpus=args.num_gpus,
             tokenizer_name=args.tokenizer_name,
             model_name=args.model_name,
             train_datamix_name=args.train_datamix_name,
@@ -334,7 +336,6 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("run_name", type=str, help="Name of the run")
-    parser.add_argument("num_gpus", type=int, default=torch.cuda.device_count(), nargs='?', help="Number of GPUs to use")
     parser.add_argument("--tokenizer_name", type=str, default="dolma2", help="Name of the tokenizer to use")
     parser.add_argument("--model_name", type=str, default="olmo2_100M_moe_32_16", help="Name of the model configuration to use")
     parser.add_argument("--train_datamix_name", type=str, default="OLMoE_mix_0824", help="Name of the training data mix")
@@ -345,7 +346,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_work_dir", type=str, default=USER_PROJECT_SPECS['DATA_WORK_DIR'], help="Working directory for data")
     parser.add_argument("--sequence_length", type=int, default=2048, help="Sequence length for training")
     parser.add_argument("--global_batch_size", type=int, default=512, help="Batch size total")
-    parser.add_argument("--per_gpu_batch_size", type=int, default=512, help="Batch size per GPU")
+    parser.add_argument("--per_gpu_batch_size", type=int, default=16, help="Batch size per GPU")
     parser.add_argument("--moe_num_experts_list", type=str, default="32,64", help="List of number of experts for MoE")
     parser.add_argument("--moe_hidden_multipliers_list", type=str, default="1024,2048", help="List of hidden sizes multiplers for MoE")
     parser.add_argument("--moe_router_top_ks_list", type=str, default="4,8", help="List of router top-k values for MoE")
