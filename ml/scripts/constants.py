@@ -73,6 +73,30 @@ MODEL_HP_DEFAULTS = {
                 "value": [2000000000],
             },
         },
+    },
+    "olmo2_200M": {
+        "train_module": {
+            "optim": {
+                "lr": [4e-3],
+            },
+        },
+        "trainer": {
+            "max_duration": {
+                "value": [4000000000],
+            },
+        },
+    },
+    "olmo2_400M": {
+        "train_module": {
+            "optim": {
+                "lr": [4e-3],
+            },
+        },
+        "trainer": {
+            "max_duration": {
+                "value": [8000000000],
+            },
+        },
     }
 }
 
@@ -108,7 +132,7 @@ HARDWARE_SPECS_DICT = {
     },
     "olmo2_10M": { 
         "gpu-l40": {
-            # "per_gpu_batch_size": 32,
+            "per_gpu_batch_size": 16,
         }, 
         "gpu-a40": {
             "per_gpu_batch_size": 16,
@@ -121,7 +145,7 @@ HARDWARE_SPECS_DICT = {
     },
     "olmo2_20M": { 
         "gpu-l40": {
-            "per_gpu_batch_size": 32,
+            "per_gpu_batch_size": 16,
         }, 
         "gpu-a40": {
             "per_gpu_batch_size": 16,
@@ -131,7 +155,7 @@ HARDWARE_SPECS_DICT = {
     },
     "olmo2_50M": { 
         "gpu-l40": {
-            "per_gpu_batch_size": 32,
+            "per_gpu_batch_size": 16,
         }, 
         "gpu-a40": {
             "per_gpu_batch_size": 16,
@@ -141,10 +165,32 @@ HARDWARE_SPECS_DICT = {
     },
     "olmo2_100M": { 
         "gpu-l40": {
-            "per_gpu_batch_size": 32,
+            "per_gpu_batch_size": 16,
         }, 
         "gpu-a40": {
             "per_gpu_batch_size": 16,
+        }, 
+        "gpu-a100": {
+        }, 
+    },
+    "olmo2_200M": { 
+        "gpu-l40": {
+            "per_gpu_batch_size": 8,
+        }, 
+        "gpu-a40": {
+            "per_gpu_batch_size": 8,
+        }, 
+        "gpu-h200": {
+            "per_gpu_batch_size": 16,
+
+        }, 
+    },
+    "olmo2_400M": { 
+        "gpu-l40": {
+            "per_gpu_batch_size": 8,
+        }, 
+        "gpu-a40": {
+            "per_gpu_batch_size": 8,
         }, 
         "gpu-a100": {
         }, 
