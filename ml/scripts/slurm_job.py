@@ -12,7 +12,7 @@ import os
 import random
 import subprocess
 import sys
-from utils import dict_update
+from utils import dict_update, has_file_been_modified_recently
 
 # BASH_IF_CLAUSE = """
 # if [[ "$SLURM_ARRAY_TASK_ID" == "{index}" ]]; then
@@ -189,6 +189,7 @@ def run_grid(
     conda_env_name=None,
     include_jobs_indices=None,
     filter_succeeded=True,
+    filter_running=True,
     sweep_port_start=None,
 ):
     """Generates full commands from a grid.
@@ -289,6 +290,17 @@ def run_grid(
                     print(f"Job {job_name} already done before, skipping.")
                     return True
         return False
+    
+    # if updated in the last 10 minutes, assume it's running
+    def check_if_job_is_running(job_name, save_root, recent_threshold_seconds=600):
+        """Check if a job is currently running."""
+        stdout_path = os.path.join(save_root, job_name, 'stdout')
+        running = has_file_been_modified_recently(stdout_path, recent_threshold_seconds=recent_threshold_seconds) 
+        if running:
+            print(f"Job {job_name} may be running right now, skipping.")
+        return running
+
+    
 
     if not prefix:
         raise ValueError('Need prefix command')
@@ -374,6 +386,17 @@ def run_grid(
     else:
         NEW_DIR_PATH = DIR_PATH
 
+
+    # Filter out jobs based on debug mode, indices, and status
+    if debug_mode and len(final_jobs) > 1:
+        final_jobs = final_jobs[:1]
+    elif include_jobs_indices:
+        final_jobs = [final_jobs[i] for i in include_jobs_indices]
+    if filter_succeeded:
+        final_jobs = [job for job in final_jobs if not check_if_job_succeeded_before(job.name, SAVE_ROOT)]
+    if filter_running:
+        final_jobs = [job for job in final_jobs if not check_if_job_is_running(job.name, SAVE_ROOT)]
+
     # Dump grid, specs, jobs to files
     if not os.path.exists(SAVE_ROOT):
         os.makedirs(SAVE_ROOT)
@@ -384,15 +407,9 @@ def run_grid(
         with open(os.path.join(SAVE_ROOT, 'jobs_lookup.jsonl'), 'w') as f:
             for i, job in enumerate(final_jobs):
                 f.write(json.dumps({'i': i, 'name': job.name, 'cmd': job.cmd}) + '\n')
-
+    
     jobs_path = []
     sweep_port_start = sweep_port_start or random.randint(10000, 20000)
-    if debug_mode and len(final_jobs) > 1:
-        final_jobs = final_jobs[:1]
-    elif include_jobs_indices:
-        final_jobs = [final_jobs[i] for i in include_jobs_indices]
-    if filter_succeeded:
-        final_jobs = [job for job in final_jobs if not check_if_job_succeeded_before(job.name, SAVE_ROOT)]
     for i, job in enumerate(final_jobs):
         jobs_path.append(
             create_job_files(
@@ -500,6 +517,10 @@ def submit_array_jobs(
     conda_env_name=None,
     append_to_sbatch_str=None,
 ):  
+    """Submits the jobs as a SLURM job array."""
+    if not jobs_path:
+        raise ValueError("No jobs to submit.")
+
     i = 0
     SLURMFILE = os.path.join(SAVE_ROOT, f'run_{i}.slrm')
     while os.path.exists(SLURMFILE):

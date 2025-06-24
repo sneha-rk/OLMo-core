@@ -127,50 +127,24 @@ BATCH_SIZE = 512
 HARDWARE_SPECS_DICT = {
     "all": {
         "NUM_GPUS": 4,
-        "NUM_CPUS": 4,
-        "MEM_GB": 128,
+        "NUM_CPUS": 5,
+        "MEM_GB": 120,
+        "per_gpu_batch_size": 16,
     },
     "olmo2_10M": { 
-        "gpu-l40": {
-            "per_gpu_batch_size": 16,
-        }, 
-        "gpu-a40": {
-            "per_gpu_batch_size": 16,
-        }, 
-        "gpu-a100": {
-        }, 
         "gpu-rtx6k": {
             "per_gpu_batch_size": 16,
         }, 
     },
     "olmo2_20M": { 
-        "gpu-l40": {
-            "per_gpu_batch_size": 16,
-        }, 
-        "gpu-a40": {
-            "per_gpu_batch_size": 16,
-        }, 
-        "gpu-a100": {
-        }, 
     },
     "olmo2_50M": { 
-        "gpu-l40": {
-            "per_gpu_batch_size": 16,
-        }, 
-        "gpu-a40": {
-            "per_gpu_batch_size": 16,
-        }, 
-        "gpu-a100": {
-        }, 
     },
     "olmo2_100M": { 
-        "gpu-l40": {
+        "gpu-h200": {
             "per_gpu_batch_size": 16,
-        }, 
-        "gpu-a40": {
-            "per_gpu_batch_size": 16,
-        }, 
-        "gpu-a100": {
+            "NUM_CPUS": 16,
+            "MEM_GB": 240,
         }, 
     },
     "olmo2_200M": { 
@@ -182,7 +156,8 @@ HARDWARE_SPECS_DICT = {
         }, 
         "gpu-h200": {
             "per_gpu_batch_size": 16,
-
+            "NUM_CPUS": 16,
+            "MEM_GB": 240,
         }, 
     },
     "olmo2_400M": { 
@@ -191,8 +166,6 @@ HARDWARE_SPECS_DICT = {
         }, 
         "gpu-a40": {
             "per_gpu_batch_size": 8,
-        }, 
-        "gpu-a100": {
         }, 
     }
 }
