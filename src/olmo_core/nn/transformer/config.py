@@ -1076,7 +1076,7 @@ class TransformerConfig(ModelConfig):
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", 32),
-                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
+                hidden_sizes_list=[int(mult * d_model * 4) for mult in kwargs.pop("hidden_multipliers_list", [1])],
                 routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4])],
                 lb_loss_weight=0.01,
                 z_loss_weight=0.001,
@@ -1117,7 +1117,7 @@ class TransformerConfig(ModelConfig):
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", 32),
-                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
+                hidden_sizes_list=[int(mult * d_model * 4) for mult in kwargs.pop("hidden_multipliers_list", [1])],
                 routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4])],
                 lb_loss_weight=0.01,
                 z_loss_weight=0.001,
@@ -1157,7 +1157,7 @@ class TransformerConfig(ModelConfig):
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", 32),
-                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
+                hidden_sizes_list=[int(mult * d_model * 4) for mult in kwargs.pop("hidden_multipliers_list", [1])],
                 routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4])],
                 lb_loss_weight=0.01,
                 z_loss_weight=0.001,
@@ -1197,7 +1197,7 @@ class TransformerConfig(ModelConfig):
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", [32]),
-                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
+                hidden_sizes_list=[int(mult * d_model * 4) for mult in kwargs.pop("hidden_multipliers_list", [1])],
                 routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4])],
                 lb_loss_weight=0.01,
                 z_loss_weight=0.001,
@@ -1237,7 +1237,7 @@ class TransformerConfig(ModelConfig):
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", [32]),
-                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
+                hidden_sizes_list=[int(mult * d_model * 4) for mult in kwargs.pop("hidden_multipliers_list", [1])],
                 routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4])],
                 lb_loss_weight=0.01,
                 z_loss_weight=0.001,
@@ -1276,7 +1276,7 @@ class TransformerConfig(ModelConfig):
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", [32]),
-                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
+                hidden_sizes_list=[int(mult * d_model * 4) for mult in kwargs.pop("hidden_multipliers_list", [1])],
                 routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4])],
                 lb_loss_weight=0.01,
                 z_loss_weight=0.001,
@@ -1315,7 +1315,7 @@ class TransformerConfig(ModelConfig):
             feed_forward_moe=MoEConfig(
                 name=MoEType.default,
                 num_experts_list=kwargs.pop("num_experts_list", [32]),
-                hidden_sizes_list=[int(mult * d_model) for mult in kwargs.pop("hidden_multipliers_list", [1])],
+                hidden_sizes_list=[int(mult * d_model * 4) for mult in kwargs.pop("hidden_multipliers_list", [1])],
                 routers_list=[MoERouterConfig(top_k=top_k) for top_k in kwargs.pop("router_top_ks_list", [4])],
                 lb_loss_weight=0.01,
                 z_loss_weight=0.001,

@@ -12,10 +12,10 @@ SWEEP_NAME_DEFAULT = ''
 project = 'moe'
 MODELS = [
     # 'olmo2_200M',
-    # 'olmo2_100M',
+    'olmo2_100M',
     # 'olmo2_50M',
     # 'olmo2_20M',
-    'olmo2_10M',
+    # 'olmo2_10M',
 ]
 
 def main(
@@ -27,10 +27,14 @@ def main(
     dry_mode=False,
     account=None, 
     partition=None,
+    job_time='24:00:00',
     gpus=None,
     cpus=None,
     mem=None,
     include_jobs_indices=None,
+    ignore_specs_check_keys=["NUM_CPUS", "MEM_GB"],
+    filter_succeeded=True,
+    filter_running=True,
     **kwargs,
 ):
     if account is None or partition is None:
@@ -38,6 +42,7 @@ def main(
 
     DEBUG_MODE = debug
     DRY_MODE = dry_mode
+    job_time = '1:00:00' if debug else job_time
 
     if path_to_sweep:
         path_to_sweep = path_to_sweep.rstrip('/')
@@ -58,7 +63,47 @@ def main(
         if os.path.exists(path_to_specs):
             old_specs = json.load(open(path_to_specs, 'r'))
             for key in old_specs:
-                assert SPECS.get(key) == old_specs[key], f"Specs mismatch for {key}: {SPECS.get(key)} != {old_specs[key]}"
+                if key not in ignore_specs_check_keys:
+                    assert SPECS.get(key) == old_specs[key], f"Specs mismatch for {key}: {SPECS.get(key)} != {old_specs[key]}"
+        
+        run_grid(
+            grid,
+            default_grid=dict_update(copy(MODEL_HP_DEFAULTS['all']), MODEL_HP_DEFAULTS.get(model, {})),
+            sweep_name=model_sweep_name,
+            specs=SPECS,
+            name_keys=SPECS.get("NAME_KEYS", []),
+            prefix=SPECS['COMMAND_PREFIX'],
+            gpus=SPECS['NUM_GPUS'],
+            cpus=SPECS["NUM_CPUS"],
+            nodes=((SPECS['NUM_GPUS'] - 1) // 8 + 1),
+            node_exclude=None,
+            account=account,
+            partition=partition,
+            DIR_PATH=SPECS["PROJECT_DIR"],
+            jobtime=(job_time if job_time else SPECS.get("JOBTIME", '24:00:00')),            
+            include_job_id=False,
+            hashname=False,
+            saveroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{model_sweep_name}",
+            logroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{model_sweep_name}",
+            mem_gb=SPECS["MEM_GB"],
+            requeue=True,
+            data_parallel=False,
+            comment=None,
+            copy_env=True,
+            copy_dirs=[],
+            max_num_jobs=None,
+            num_copies=1,
+            job_id_start=1,
+            debug_mode=DEBUG_MODE,
+            dry_mode=DRY_MODE,
+            dependencies=[],
+            repo_name="olmoe-core",
+            conda_env_name=SPECS.get("CONDA_ENV_NAME"),
+            include_jobs_indices=include_jobs_indices,
+            filter_succeeded=filter_succeeded,
+            filter_running=filter_running,
+            # append_to_sbatch_str=None,
+        )
         
     else:
         SWEEP_NAME = sweep_name
@@ -85,13 +130,13 @@ def main(
                     },
                     "trainer": {
                         "max_duration": {
-                            "value": [1000000000], #just testing
+                            # "value": [2000000000], #just testing
                         },
                     },
                 },
                 # allows you to bundle multiple hyperparameters together
                 "subgrids": {
-                    "e1x1c1": {"moe_num_experts_list": ["1"]},
+                    # "e1x1c1": {"moe_num_experts_list": ["1"]},
                     # "e2x1c1": {"moe_num_experts_list": ["2"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
                     "e4x1c1": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
                     # "e8x1c1": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
@@ -103,47 +148,49 @@ def main(
                     # "e16x0.25c4": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"]},
                     "e16x0.125c8": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"]},
                     # "e4,8x0.5,0.25c1,2": {"moe_num_experts_list": ["4,8"], "moe_hidden_multipliers_list": ["0.5,0.25"], "moe_router_top_ks_list": ["1,2"]},
-                    # "e8,16x0.25,0.125c2,4": {"moe_num_experts_list": ["8,16"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"]},
+                    "e8,16x0.25,0.125c2,4": {"moe_num_experts_list": ["8,16"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"]},
                     "e4,16x0.5,0.125c1,4": {"moe_num_experts_list": ["4,16"], "moe_hidden_multipliers_list": ["0.5,0.125"], "moe_router_top_ks_list": ["1,4"]},
                 },
             }
 
-    run_grid(
-        grid,
-        default_grid=dict_update(copy(MODEL_HP_DEFAULTS['all']), MODEL_HP_DEFAULTS.get(model, {})),
-        sweep_name=model_sweep_name,
-        specs=SPECS,
-        name_keys=SPECS.get("NAME_KEYS", []),
-        prefix=SPECS['COMMAND_PREFIX'],
-        gpus=SPECS['NUM_GPUS'],
-        cpus=SPECS["NUM_CPUS"],
-        nodes=((SPECS['NUM_GPUS'] - 1) // 8 + 1),
-        node_exclude=None,
-        account=account,
-        partition=partition,
-        DIR_PATH=SPECS["PROJECT_DIR"],
-        jobtime=('1:00:00' if debug else SPECS.get("JOBTIME", '24:00:00')),            
-        include_job_id=False,
-        hashname=False,
-        saveroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{model_sweep_name}",
-        logroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{model_sweep_name}",
-        mem_gb=SPECS["MEM_GB"],
-        requeue=True,
-        data_parallel=False,
-        comment=None,
-        copy_env=True,
-        copy_dirs=[],
-        max_num_jobs=None,
-        num_copies=1,
-        job_id_start=1,
-        debug_mode=DEBUG_MODE,
-        dry_mode=DRY_MODE,
-        dependencies=[],
-        repo_name="olmoe-core",
-        conda_env_name=SPECS.get("CONDA_ENV_NAME"),
-        include_jobs_indices=include_jobs_indices,
-        # append_to_sbatch_str=None,
-    )
+            run_grid(
+                grid,
+                default_grid=dict_update(copy(MODEL_HP_DEFAULTS['all']), MODEL_HP_DEFAULTS.get(model, {})),
+                sweep_name=model_sweep_name,
+                specs=SPECS,
+                name_keys=SPECS.get("NAME_KEYS", []),
+                prefix=SPECS['COMMAND_PREFIX'],
+                gpus=SPECS['NUM_GPUS'],
+                cpus=SPECS["NUM_CPUS"],
+                nodes=((SPECS['NUM_GPUS'] - 1) // 8 + 1),
+                node_exclude=None,
+                account=account,
+                partition=partition,
+                DIR_PATH=SPECS["PROJECT_DIR"],
+                jobtime=(job_time if job_time else SPECS.get("JOBTIME", '24:00:00')),      
+                include_job_id=False,
+                hashname=False,
+                saveroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{model_sweep_name}",
+                logroot=f"{SPECS['DEFAULT_SAVE_PATH']}/{model_sweep_name}",
+                mem_gb=SPECS["MEM_GB"],
+                requeue=True,
+                data_parallel=False,
+                comment=None,
+                copy_env=True,
+                copy_dirs=[],
+                max_num_jobs=None,
+                num_copies=1,
+                job_id_start=1,
+                debug_mode=DEBUG_MODE,
+                dry_mode=DRY_MODE,
+                dependencies=[],
+                repo_name="olmoe-core",
+                conda_env_name=SPECS.get("CONDA_ENV_NAME"),
+                include_jobs_indices=include_jobs_indices,
+                filter_succeeded=filter_succeeded,
+                filter_running=filter_running,
+                # append_to_sbatch_str=None,
+            )
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -154,10 +201,12 @@ if __name__ == '__main__':
     parser.add_argument('--dry-mode', action='store_true')
     parser.add_argument('-a', '--slurm-account', type=str)
     parser.add_argument('-p', '--slurm-partition', type=str)
+    parser.add_argument('-t', '--job-time', type=str)
     parser.add_argument('--gpus', type=int)
     parser.add_argument('--cpus', type=int)
     parser.add_argument('--mem', type=str)
     parser.add_argument('-i', '--include-jobs-indices', type=str, default=None)
+    parser.add_argument('-nf', '--no-filter', action='store_true', help="If set, will not filter out jobs that have already been run in the sweep. Useful for debugging.")
 
     args = parser.parse_args()
 
@@ -166,11 +215,14 @@ if __name__ == '__main__':
         path_to_sweep=args.path_to_sweep,
         add_time_to_name=args.add_time_to_name,
         debug=args.debug, 
-        dry_mode=args.dry_mode, 
+        dry_mode=args.dry_mode,
         account=args.slurm_account, 
         partition=args.slurm_partition,
+        job_time=args.job_time,
         gpus=args.gpus,
         cpus=args.cpus,
         mem=args.mem,
         include_jobs_indices=([int(i) for i in args.include_jobs_indices.split(",")] if args.include_jobs_indices else None),
+        filter_running=not args.no_filter,
+        filter_succeeded=True,
     )
