@@ -8,19 +8,20 @@ from constants import PROJECT_SPECS, HARDWARE_SPECS_DICT, MODEL_HP_DEFAULTS
 from utils import dict_update
 
 
-SWEEP_NAME_DEFAULT = ''
+SWEEP_NAME_DEFAULT = 'lr_sweep_5XD'
 project = 'moe'
 MODELS = [
     # 'olmo2_200M',
-    'olmo2_100M',
+    # 'olmo2_100M',
     # 'olmo2_50M',
     # 'olmo2_20M',
-    # 'olmo2_10M',
+    'olmo2_10M',
 ]
 
 def main(
     sweep_name=SWEEP_NAME_DEFAULT,
-    path_to_sweep=None,
+    relaunch_path=None,
+    relaunch_name=None,
     add_time_to_name='front',
     add_model_to_name='end',
     debug=False, 
@@ -32,7 +33,7 @@ def main(
     cpus=None,
     mem=None,
     include_jobs_indices=None,
-    ignore_specs_check_keys=["NUM_CPUS", "MEM_GB"],
+    ignore_specs_check_keys=["NUM_CPUS", "MEM_GB", "JOBTIME"],
     filter_succeeded=True,
     filter_running=True,
     **kwargs,
@@ -43,19 +44,29 @@ def main(
     DEBUG_MODE = debug
     DRY_MODE = dry_mode
     job_time = '1:00:00' if debug else job_time
+    user = os.environ.get('USER')
+    if user not in PROJECT_SPECS:
+        raise ValueError(f"User {user} not found in PROJECT_SPECS. Please add your user to the PROJECT_SPECS dictionary.")
+    USER_SPECS = PROJECT_SPECS[user]
 
-    if path_to_sweep:
-        path_to_sweep = path_to_sweep.rstrip('/')
-        model_sweep_name = os.path.basename(path_to_sweep)
-        path_to_grid_file = os.path.join(path_to_sweep, 'grid.json')
-        path_to_specs = os.path.join(path_to_sweep, 'specs.json')
+    if relaunch_path or relaunch_name:
+        if relaunch_name and relaunch_path:
+            raise ValueError("Cannot specify both relaunch_name and relaunch_path")
+        if relaunch_name:
+            relaunch_path = os.path.join(PROJECT_SPECS[user]['DEFAULT_SAVE_PATH'], relaunch_name)
+        relaunch_path = relaunch_path.rstrip('/')
+        model_sweep_name = os.path.basename(relaunch_path)
+        path_to_grid_file = os.path.join(relaunch_path, 'grid.json')
+        path_to_specs = os.path.join(relaunch_path, 'specs.json')
         if not os.path.exists(path_to_grid_file):
             raise FileNotFoundError(f"Grid file {path_to_grid_file} does not exist.")
         grid = json.load(open(path_to_grid_file, 'r'))
         model = grid.get('main_grid', {}).get('model_name', [None])[0]
 
-        SPECS = dict_update(copy(PROJECT_SPECS[os.environ.get('USER')]), HARDWARE_SPECS_DICT['all'])
-        SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT[model][partition])
+        SPECS = copy(USER_SPECS)
+        SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT.get('all', {}))
+        SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT.get(partition, {}))
+        SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT[model].get(partition, {})) 
         SPECS['NUM_GPUS'] = gpus or SPECS['NUM_GPUS']
         SPECS["NUM_CPUS"] = cpus or SPECS["NUM_CPUS"]
         SPECS["MEM_GB"] = mem or SPECS["MEM_GB"]
@@ -112,8 +123,11 @@ def main(
             SWEEP_NAME = f"{time_str}_{SWEEP_NAME}" if SWEEP_NAME else time_str
         for model in MODELS:
             model_sweep_name = f"{SWEEP_NAME}_{model}" if add_model_to_name == 'end' else SWEEP_NAME
-            SPECS = dict_update(copy(PROJECT_SPECS[os.environ.get('USER')]), HARDWARE_SPECS_DICT['all'])
-            SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT[model][partition])
+
+            SPECS = copy(USER_SPECS)
+            SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT.get('all', {}))
+            SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT.get(partition, {}))
+            SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT[model].get(partition, {}))
             SPECS['NUM_GPUS'] = gpus or SPECS['NUM_GPUS']
             SPECS["NUM_CPUS"] = cpus or SPECS["NUM_CPUS"]
             SPECS["MEM_GB"] = mem or SPECS["MEM_GB"]
@@ -123,8 +137,13 @@ def main(
                 "main_grid": { 
                     "model_name": [model],
                     "save_root": [f"{SPECS['DEFAULT_SAVE_PATH']}/{model_sweep_name}"],
+                    # "scheduler": ["wsd"],
+                    "moe_type": ["dropless"],
+                    # "moe_bias_gamma": [0.001],  # None for default, or specify a float value
+                    # "moe_lb_loss_weight": [0.0001],  # Weight for the lb-loss in MoE
                     'train_module': {
                         'optim': {
+                            # 'lr': [4e-3, 1e-2],
                             'lr': [4e-4],
                         },
                     },
@@ -137,19 +156,57 @@ def main(
                 # allows you to bundle multiple hyperparameters together
                 "subgrids": {
                     # "e1x1c1": {"moe_num_experts_list": ["1"]},
-                    # "e2x1c1": {"moe_num_experts_list": ["2"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
-                    "e4x1c1": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
-                    # "e8x1c1": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
-                    "e16x1c1": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"]},
-                    # "e4x0.5c2": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"]},
-                    # "e8x0.5c2": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"]},
-                    # "e16x0.5c2": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"]},
-                    # "e8x0.25c4": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"]},
-                    # "e16x0.25c4": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"]},
-                    "e16x0.125c8": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"]},
-                    # "e4,8x0.5,0.25c1,2": {"moe_num_experts_list": ["4,8"], "moe_hidden_multipliers_list": ["0.5,0.25"], "moe_router_top_ks_list": ["1,2"]},
-                    "e8,16x0.25,0.125c2,4": {"moe_num_experts_list": ["8,16"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"]},
-                    "e4,16x0.5,0.125c1,4": {"moe_num_experts_list": ["4,16"], "moe_hidden_multipliers_list": ["0.5,0.125"], "moe_router_top_ks_list": ["1,4"]},
+                    ### no generalist models
+                    # "e2x1c1_nogen": {"moe_num_experts_list": ["2"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e4x1c1_nogen": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e8x1c1_nogen": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e16x1c1_nogen": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e4x0.5c2_nogen": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e8x0.5c2_nogen": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e16x0.5c2_nogen": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e8x0.25c4_nogen": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e16x0.25c4_nogen": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e16x0.125c8_nogen": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e4,8x0.5,0.25c1,2_nogen": {"moe_num_experts_list": ["4,8"], "moe_hidden_multipliers_list": ["0.5,0.25"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e8,16x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["8,16"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e4,16x0.5,0.125c1,4_nogen": {"moe_num_experts_list": ["4,16"], "moe_hidden_multipliers_list": ["0.5,0.125"], "moe_router_top_ks_list": ["1,4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    "e32x0.25c4_nogen": {"moe_num_experts_list": ["32"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    "e64x0.25c4_nogen": {"moe_num_experts_list": ["64"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e32x0.125c8_nogen": {"moe_num_experts_list": ["32"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e64x0.125c8_nogen": {"moe_num_experts_list": ["64"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e8,32x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["8,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e16,32x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["16,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    "e32,32x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["32,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    "e32,64x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["32,64"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    ## 0.5 generalist models
+                    # "e4x0.5c1_0.5gen": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e8x0.5c1_0.5gen": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e16x0.5c1_0.5gen": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e8x0.25c2_0.5gen": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e16x0.25c2_0.5gen": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e16x0.125c4_0.5gen": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e32x0.25c2_0.5gen": {"moe_num_experts_list": ["32"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e64x0.25c2_0.5gen": {"moe_num_experts_list": ["64"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e32x0.125c4_0.5gen": {"moe_num_experts_list": ["32"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e64x0.125c4_0.5gen": {"moe_num_experts_list": ["64"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e8,32x0.25,0.125c1,2_0.5gen": {"moe_num_experts_list": ["8,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e16,32x0.25,0.125c1,2_0.5gen": {"moe_num_experts_list": ["16,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e32,32x0.25,0.125c1,2_0.5gen": {"moe_num_experts_list": ["32,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e32,64x0.25,0.125c1,2_0.5gen": {"moe_num_experts_list": ["32,64"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e8,16x0.25,0.125c1,2_0.5gen": {"moe_num_experts_list": ["8,16"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e8x0.25c3_0.25gen": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["3"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e16x0.25c3_0.25gen": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["3"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e16x0.125c6_0.25gen": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["6"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e4,16x0.5,0.125c1,2_0.25gen": {"moe_num_experts_list": ["4,16"], "moe_hidden_multipliers_list": ["0.5,0.125"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e8,16x0.25,0.125c2,2_0.25gen": {"moe_num_experts_list": ["8,16"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,2"], "moe_generalist_hidden_multiplier": ["0.25"]},"e32x0.125c4_0.5gen": {"moe_num_experts_list": ["32"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e32x0.25c3_0.25gen": {"moe_num_experts_list": ["32"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["3"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e64x0.25c3_0.25gen": {"moe_num_experts_list": ["64"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["3"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e32x0.125c6_0.25gen": {"moe_num_experts_list": ["32"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["6"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e64x0.125c6_0.25gen": {"moe_num_experts_list": ["64"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["6"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e8,32x0.25,0.125c2,2_0.25gen": {"moe_num_experts_list": ["8,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,2"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e16,32x0.25,0.125c2,2_0.25gen": {"moe_num_experts_list": ["16,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,2"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e32,32x0.25,0.125c2,2_0.25gen": {"moe_num_experts_list": ["32,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,2"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e32,64x0.25,0.125c2,2_0.25gen": {"moe_num_experts_list": ["32,64"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,2"], "moe_generalist_hidden_multiplier": ["0.25"]},
                 },
             }
 
@@ -194,8 +251,9 @@ def main(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--sweep-name', type=str, default=SWEEP_NAME_DEFAULT)
-    parser.add_argument('--path-to-sweep', type=str, default=None, help="Path to the sweep directory containing grid.json and specs.json. Used to restart jobs from a previous sweep.")
+    parser.add_argument('-n', '--sweep-name', type=str, default=SWEEP_NAME_DEFAULT)
+    parser.add_argument('-rp', '--relaunch-path', type=str, default=None, help="Path to the sweep directory containing grid.json and specs.json. Used to restart jobs from a previous sweep.")
+    parser.add_argument('-rn', '--relaunch-name', type=str, default=None, help="Name of sweep, also base of sweep directory containing grid.json and specs.json. Used to restart jobs from a previous sweep.")
     parser.add_argument('--add-time-to-name', type=str, default='front', choices=['front', 'none'])
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--dry-mode', action='store_true')
@@ -212,7 +270,8 @@ if __name__ == '__main__':
 
     main(
         sweep_name=args.sweep_name,
-        path_to_sweep=args.path_to_sweep,
+        relaunch_path=args.relaunch_path,
+        relaunch_name=args.relaunch_name,
         add_time_to_name=args.add_time_to_name,
         debug=args.debug, 
         dry_mode=args.dry_mode,
@@ -224,5 +283,5 @@ if __name__ == '__main__':
         mem=args.mem,
         include_jobs_indices=([int(i) for i in args.include_jobs_indices.split(",")] if args.include_jobs_indices else None),
         filter_running=not args.no_filter,
-        filter_succeeded=True,
+        filter_succeeded=not args.no_filter,
     )

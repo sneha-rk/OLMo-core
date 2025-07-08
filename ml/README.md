@@ -11,6 +11,9 @@ git clone https://github.com/sneha-rk/OLMo-core.git
 cd OLMo-core
 pip install -e .[all]
 
+git clone --recursive https://github.com/sneha-rk/grouped_gemm
+cd group_gemm
+GROUPED_GEMM_CUTLASS=1 pip install .
 
 RUN_NAME=test_name
 srun -p ckpt-all --time=12:00:00 --nodes=1 --cpus-per-task=4 --mem=16G --gres=gpu:l40s:2 --pty /bin/bash
