@@ -34,7 +34,7 @@ MODEL_HP_DEFAULTS = {
         },
         "trainer": {
             "max_duration": {
-                "value": [200000000],
+                "value": [1000000000],
             },
         },
     },
@@ -46,7 +46,7 @@ MODEL_HP_DEFAULTS = {
         },
         "trainer": {
             "max_duration": {
-                "value": [400000000],
+                "value": [2000000000],
             },
         },
     },
@@ -58,7 +58,7 @@ MODEL_HP_DEFAULTS = {
         },
         "trainer": {
             "max_duration": {
-                "value": [1000000000],
+                "value": [5000000000],
             },
         },
     },
@@ -70,7 +70,7 @@ MODEL_HP_DEFAULTS = {
         },
         "trainer": {
             "max_duration": {
-                "value": [2000000000],
+                "value": [10000000000],
             },
         },
     },
@@ -82,7 +82,7 @@ MODEL_HP_DEFAULTS = {
         },
         "trainer": {
             "max_duration": {
-                "value": [4000000000],
+                "value": [20000000000],
             },
         },
     },
@@ -94,7 +94,7 @@ MODEL_HP_DEFAULTS = {
         },
         "trainer": {
             "max_duration": {
-                "value": [8000000000],
+                "value": [40000000000],
             },
         },
     }
@@ -131,9 +131,12 @@ HARDWARE_SPECS_DICT = {
         "MEM_GB": 120,
         "per_gpu_batch_size": 16,
     },
+    "ckpt-g2": {
+        "JOBTIME": "9:00:00",
+    },
     "olmo2_10M": { 
         "gpu-rtx6k": {
-            "per_gpu_batch_size": 16,
+            "per_gpu_batch_size": 4,
         }, 
     },
     "olmo2_20M": { 

@@ -7,7 +7,7 @@ import os
 import logging
 import traceback
 from dataclasses import dataclass, field
-from typing import List, cast
+from typing import List, cast, Optional
 
 import torch
 import torch.distributed as dist
@@ -26,7 +26,7 @@ from olmo_core.nn.transformer import (
     TransformerActivationCheckpointingMode,
     TransformerConfig,
 )
-from olmo_core.optim import CosWithWarmup, OptimGroupOverride, AdamWConfig
+from olmo_core.optim import CosWithWarmup, OptimGroupOverride, AdamWConfig, WSD
 from olmo_core.train import (
     Duration,
     TrainerConfig,
@@ -81,6 +81,42 @@ USER_PROJECT_SPECS = PROJECT_SPECS[os.environ.get('USER', 'default')]
 # This will read stream data from the public endpoints by default, but that might be a lot slower
 # than reading data locally.
 
+def get_wandb_tags(
+    run_name,
+    model_name,
+    moe_num_experts_list,
+    moe_generalist_hidden_multiplier,
+    moe_type,
+):
+    """
+    Returns a list of tags for W&B runs based on the current configuration.
+    This function can be extended to include more complex logic for generating tags.
+    """
+    wandb_tags = []
+    if len(moe_num_experts_list) > 1:
+        wandb_tags.append("hetMoE")
+    elif len(moe_num_experts_list) == 1 and moe_num_experts_list[0] > 1:
+        wandb_tags.append("MoE")
+    elif len(moe_num_experts_list) == 1 and moe_num_experts_list[0] == 1:
+        wandb_tags.append("dense")
+    else:
+        raise ValueError("moe_num_experts_list must contain at least one element")
+    if moe_type == "dropless":
+        wandb_tags.append("dropless")
+    if "5XD" in run_name:
+        wandb_tags.append("Data=5C")
+    else:
+        wandb_tags.append("Data=1C")
+    if moe_generalist_hidden_multiplier > 0:
+        wandb_tags.append(f"{moe_generalist_hidden_multiplier}gen")
+    else:
+        wandb_tags.append("nogen")
+    
+    wandb_tags.append(model_name.split('_')[1])  # e.g., "100M", "1B"
+
+    return wandb_tags
+
+
 @dataclass
 class ExperimentConfig(Config):
     model: TransformerConfig
@@ -92,39 +128,47 @@ class ExperimentConfig(Config):
 
 
 def build_config(
-        run_name: str, 
-        tokenizer_name: str = "dolma2", 
-        model_name: str = "olmo2_100M_moe_32_16",
-        train_datamix_name: str = "OLMoE_mix_0824",
-        valid_datamix_name: str = "v3_small_ppl_validation",
-        data_root: str = USER_PROJECT_SPECS['DATAROOT'],
-        save_root: str = USER_PROJECT_SPECS['DEFAULT_SAVE_PATH'],
-        valid_data_dir: str = USER_PROJECT_SPECS['VALID_DATA_DIR'],
-        data_work_dir: str = USER_PROJECT_SPECS['DATA_WORK_DIR'],
-        sequence_length: int = 2048,
-        global_batch_size: int = 512, # 512 sequences total
-        per_gpu_batch_size: int = 4,  # 4 sequences per GPU
-        num_data_workers: int = 2,
-        train_tokens: int = 200_000_000,
-        warmup_steps: int = 50,
-        save_interval: int = 200, 
-        ephemeral_save_interval: int = 50,
-        eval_interval: int = 100,
-        metrics_collect_interval: int = 10,
-        lr: float = 4e-4,
-        embedding_weight_decay: float = 0.1,
-        weight_decay: float = 0.0,
-        adam_betas: tuple[float, float] = (0.9, 0.95),
-        z_loss_multiplier: float = 1e-5,
-        moe_num_experts_list: List[int] = [32, 64],
-        moe_hidden_multipliers_list: List[int] = [1024, 2048],
-        moe_router_top_ks_list: List[int] = [4, 8],
-        max_grad_norm: float = 1.0,
-        init_seed: int = 12536,
-        wandb_entity: str = USER_PROJECT_SPECS['WANDB_ENTITY'],
-        wandb_project: str = USER_PROJECT_SPECS['WANDB_PROJECT'],
-        overrides: List[str] = [],
-    ) -> ExperimentConfig:
+    run_name: str, 
+    tokenizer_name: str = "dolma2", 
+    model_name: str = "olmo2_100M_moe_32_16",
+    train_datamix_name: str = "OLMoE_mix_0824",
+    valid_datamix_name: str = "v3_small_ppl_validation",
+    data_root: str = USER_PROJECT_SPECS['DATAROOT'],
+    save_root: str = USER_PROJECT_SPECS['DEFAULT_SAVE_PATH'],
+    valid_data_dir: str = USER_PROJECT_SPECS['VALID_DATA_DIR'],
+    data_work_dir: str = USER_PROJECT_SPECS['DATA_WORK_DIR'],
+    sequence_length: int = 2048,
+    global_batch_size: int = 512, # 512 sequences total
+    per_gpu_batch_size: int = 4,  # 4 sequences per GPU
+    num_data_workers: int = 2,
+    train_tokens: int = 200_000_000,
+    save_interval: int = 200, 
+    ephemeral_save_interval: int = 50,
+    eval_interval: int = 100,
+    metrics_collect_interval: int = 10,
+    lr: float = 4e-4,
+    warmup_steps: int = 50,
+    decay_steps: int = 50,
+    scheduler: str = 'cosine',  # 'wsd' or 'cosine'
+    embedding_weight_decay: float = 0.1,
+    weight_decay: float = 0.0,
+    adam_betas: tuple[float, float] = (0.9, 0.95),
+    z_loss_multiplier: float = 1e-5,
+    moe_num_experts_list: List[int] = [32, 64],
+    moe_hidden_multipliers_list: List[int] = [1024, 2048],
+    moe_router_top_ks_list: List[int] = [4, 8],
+    moe_generalist_hidden_multiplier: int = 1,
+    moe_type: str = "default",  # "default" or "dropless"
+    moe_bias_gamma: Optional[float] = None,
+    max_grad_norm: float = 1.0,
+    moe_z_loss_weight: float = 0.001,
+    moe_lb_loss_weight: float = 0.01,
+    init_seed: int = 12536,
+    wandb_entity: str = USER_PROJECT_SPECS['WANDB_ENTITY'],
+    wandb_project: str = USER_PROJECT_SPECS['WANDB_PROJECT'],
+    overrides: List[str] = [],
+) -> ExperimentConfig:
+    
     tokenizer_config = TOKENIZER_LOOKUP[tokenizer_name]()
 
     model_config = MODEL_CONFIG_LOOKUP[model_name](
@@ -133,6 +177,11 @@ def build_config(
         num_experts_list=moe_num_experts_list,
         hidden_multipliers_list=moe_hidden_multipliers_list,
         router_top_ks_list=moe_router_top_ks_list,
+        moe_generalist_hidden_multiplier=moe_generalist_hidden_multiplier,
+        dropless_moe=(moe_type == "dropless"),
+        bias_gamma=moe_bias_gamma,
+        z_loss_weight=moe_z_loss_weight,
+        lb_loss_weight=moe_lb_loss_weight if moe_lb_loss_weight > 0 else None,
     )
 
     dataset_config = NumpyDatasetConfig.from_data_mix(
@@ -162,7 +211,7 @@ def build_config(
             ],
             fused=True,
         ),
-        scheduler=CosWithWarmup(warmup_steps=warmup_steps),
+        scheduler=WSD(warmup_steps=warmup_steps, decay=decay_steps, decay_fraction=None) if scheduler == 'wsd' else CosWithWarmup(warmup_steps=warmup_steps),
         compile_model=True,
         dp_config=TransformerDataParallelConfig(
             name=DataParallelType.fsdp,  
@@ -206,6 +255,7 @@ def build_config(
                 entity=wandb_entity,
                 project=wandb_project,
                 cancel_check_interval=10,
+                tags=get_wandb_tags(run_name, model_name, moe_num_experts_list, moe_generalist_hidden_multiplier, moe_type),
                 enabled=True,  # NOTE: change to true to enable
             ),
         )
@@ -285,10 +335,16 @@ def main(
             data_work_dir=args.data_work_dir,
             sequence_length=args.sequence_length,
             global_batch_size=args.global_batch_size,
+            scheduler=args.scheduler,
             per_gpu_batch_size=args.per_gpu_batch_size,
             moe_hidden_multipliers_list=[float(v) for v in args.moe_hidden_multipliers_list.split(',')], 
             moe_num_experts_list=[int(v) for v in args.moe_num_experts_list.split(',')], 
             moe_router_top_ks_list=[int(v) for v in args.moe_router_top_ks_list.split(',')], 
+            moe_generalist_hidden_multiplier=float(args.moe_generalist_hidden_multiplier),
+            moe_type=args.moe_type,
+            moe_bias_gamma=args.moe_bias_gamma,
+            moe_z_loss_weight=args.moe_z_loss_weight,
+            moe_lb_loss_weight=args.moe_lb_loss_weight,
             overrides=overrides)
         # config = build_config(run_name)
         logger.info("Config built successfully")
@@ -346,10 +402,16 @@ if __name__ == "__main__":
     parser.add_argument("--data_work_dir", type=str, default=USER_PROJECT_SPECS['DATA_WORK_DIR'], help="Working directory for data")
     parser.add_argument("--sequence_length", type=int, default=2048, help="Sequence length for training")
     parser.add_argument("--global_batch_size", type=int, default=512, help="Batch size total")
+    parser.add_argument("--scheduler", type=str, default="cosine", choices=["wsd", "cosine"], help="Scheduler type to use")
     parser.add_argument("--per_gpu_batch_size", type=int, default=16, help="Batch size per GPU")
     parser.add_argument("--moe_num_experts_list", type=str, default="32,64", help="List of number of experts for MoE")
     parser.add_argument("--moe_hidden_multipliers_list", type=str, default="1024,2048", help="List of hidden sizes multiplers for MoE")
     parser.add_argument("--moe_router_top_ks_list", type=str, default="4,8", help="List of router top-k values for MoE")
+    parser.add_argument("--moe_generalist_hidden_multiplier", type=float, default=1, help="Hidden size multiplier for the generalist expert in MoE")
+    parser.add_argument("--moe_type", type=str, help="type of MoE", default="default", choices=["default", "dropless"])
+    parser.add_argument("--moe_bias_gamma", type=float, default=None, help="Gamma value for MoE bias")
+    parser.add_argument("--moe_z_loss_weight", type=float, default=0.001, help="Weight for the z-loss in MoE")
+    parser.add_argument("--moe_lb_loss_weight", type=float, default=0.01, help="Weight for the LB loss in MoE")
     args, overrides = parser.parse_known_args()
 
     # run_name, *overrides = sys.argv[1:]

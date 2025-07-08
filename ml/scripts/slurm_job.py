@@ -292,7 +292,7 @@ def run_grid(
         return False
     
     # if updated in the last 10 minutes, assume it's running
-    def check_if_job_is_running(job_name, save_root, recent_threshold_seconds=600):
+    def check_if_job_is_running(job_name, save_root, recent_threshold_seconds=3600):
         """Check if a job is currently running."""
         stdout_path = os.path.join(save_root, job_name, 'stdout')
         running = has_file_been_modified_recently(stdout_path, recent_threshold_seconds=recent_threshold_seconds) 
@@ -358,11 +358,6 @@ def run_grid(
                 final_jobs.append(Job(cmd=cmd, name=name))
                 job_id += 1
 
-    print('Example of first job:\n{}\n'.format(final_jobs[0].cmd))
-    if dry_mode:
-        return
-
-    print('Your jobs will run for {}.'.format(jobtime))
     # ans = input(
     #     'About to launch {} jobs for a total of {} GPUs. Continue? (Y/y to proceed) '.format(
     #         len(final_jobs), nodes * gpus * len(final_jobs)
@@ -397,6 +392,15 @@ def run_grid(
     if filter_running:
         final_jobs = [job for job in final_jobs if not check_if_job_is_running(job.name, SAVE_ROOT)]
 
+    
+    print(f'Found a total of {len(final_jobs)} jobs. \nExample of first job:\n{final_jobs[0].cmd}\n')
+    print(final_jobs)
+
+    if dry_mode:
+        return
+
+    print(f'Launching! Your jobs will run for {jobtime}.')
+
     # Dump grid, specs, jobs to files
     if not os.path.exists(SAVE_ROOT):
         os.makedirs(SAVE_ROOT)
@@ -427,7 +431,6 @@ def run_grid(
                 job_port=sweep_port_start+i,
             )
         )
-    print(final_jobs)
     submit_array_jobs(
         SWEEP_NAME=sweep_name,
         SAVE_ROOT=SAVE_ROOT,
