@@ -1116,6 +1116,7 @@ class Trainer:
         data_iterator = iter(self.data_loader)
 
         while True:
+            # log.info("Trainer _iter_batches: pre_load_batch callbacks...")
             for callback in self._iter_callbacks():
                 callback.pre_load_batch()
 
@@ -1153,26 +1154,27 @@ class Trainer:
                 global_num_tokens := self.data_loader.global_num_tokens_in_batch(batch)
             ) is not None:
                 self.global_train_tokens_seen += global_num_tokens
-
             for callback in self._iter_callbacks():
                 callback.pre_step(batch)
-
+            # log.info("pre train batch")
             self.train_module.train_batch(batch)
-
+            # log.info("post train batch")
             for callback in self._iter_callbacks():
                 callback.pre_optim_step()
-
+            # log.info("pre optim step")
             self.train_module.optim_step()
             self.train_module.zero_grads()
-
+            # log.info("post optim step")
             for callback in self._iter_callbacks():
                 callback.post_train_batch()
-
+            # log.info("post train batch")
             for callback in self._iter_callbacks():
                 callback.post_step()
-
+            # log.info("post step")
             if first_batch or self.global_step % self.metrics_collect_interval == 0:
+                # log.info("logging metrics")
                 self._log_metrics()
+                # log.info("logged metrics")
                 if torch.cuda.is_available():
                     torch.cuda.set_sync_debug_mode("warn")
 
@@ -1183,12 +1185,13 @@ class Trainer:
                 # Log any remaining metrics.
                 self._log_metrics()
                 return
+            # log.info("end of batch")
 
         # Log any remaining metrics.
         self._log_metrics()
 
         log.info("Epoch complete")
-
+    
         for callback in self._iter_callbacks():
             callback.post_epoch()
 

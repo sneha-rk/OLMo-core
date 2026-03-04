@@ -46,6 +46,7 @@ SLRM_JOB_ARRAY_TEMPLATE = """
 {SBATCH_EXTRAS}
 
 source ~/.bashrc
+{bash_setup_command}
 {conda_command}
 
 echo "# -------- BEGIN CALL TO run.sh --------"
@@ -159,6 +160,7 @@ def run_grid(
     default_grid={},
     sweep_name="",
     specs={},
+    job_spec_keys=[],
     name_keys=[],
     prefix=None,
     gpus=1,
@@ -187,6 +189,7 @@ def run_grid(
     dependencies=[],
     repo_name="code",
     conda_env_name=None,
+    bash_setup_file=None,
     include_jobs_indices=None,
     filter_succeeded=True,
     filter_running=True,
@@ -292,6 +295,7 @@ def run_grid(
         return False
     
     # if updated in the last 10 minutes, assume it's running
+    # def check_if_job_is_running(job_name, save_root, recent_threshold_seconds=3600):
     def check_if_job_is_running(job_name, save_root, recent_threshold_seconds=3600):
         """Check if a job is currently running."""
         stdout_path = os.path.join(save_root, job_name, 'stdout')
@@ -349,6 +353,7 @@ def run_grid(
         for config_dict in permutations_dicts:
             for _ in range(num_copies):
                 cmd_args = unroll_args(config_dict)
+                cmd_args.update({k: specs[k] for k in specs.keys() if k not in cmd_args and k  in job_spec_keys})
                 name = make_job_name(name_key_list, cmd_args, sweep_name=sweep_name, subgrid_name=subgrid_name)
                 name = name[:cutoff] if cutoff else name
                 name = sha1(name) if hashname else name
@@ -450,6 +455,7 @@ def run_grid(
         jobs_path=jobs_path,
         dependencies=dependencies,
         conda_env_name=conda_env_name,
+        bash_setup_file=bash_setup_file,
     )
 
 
@@ -518,6 +524,7 @@ def submit_array_jobs(
     jobs_path=[],
     dependencies=[],
     conda_env_name=None,
+    bash_setup_file=None,
     append_to_sbatch_str=None,
 ):  
     """Submits the jobs as a SLURM job array."""
@@ -565,6 +572,7 @@ def submit_array_jobs(
 
     conda_command = f'conda activate {conda_env_name}' if conda_env_name else ''
 
+    bash_setup_command = f'source {bash_setup_file}' if bash_setup_file else ''
     # make sure sbatch extras are a string
     SBATCH_EXTRAS = "\n".join(SBATCH_EXTRAS)
     JOB_LAUNCHER = []

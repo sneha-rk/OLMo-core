@@ -1,6 +1,7 @@
 import collections.abc
 import os
 import time
+from copy import copy
 
 # def recursive_dict_update(original_dict, update_dict):
 #     """
@@ -35,6 +36,17 @@ def dict_update(d, u):
             d[k] = v
     return d
 
+def get_specs_for_user_and_model(USER_SPECS, HARDWARE_SPECS_DICT, model, partition, gpus, cpus, mem):
+    SPECS = copy(USER_SPECS)
+    SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT.get('all', {}))
+    SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT.get(partition, {}))
+    SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT[model].get("all", {}))
+    SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT[model].get(partition, {}))
+    SPECS['NUM_GPUS'] = gpus or SPECS['NUM_GPUS']
+    SPECS["NUM_CPUS"] = cpus or SPECS["NUM_CPUS"]
+    SPECS["MEM_GB"] = mem or SPECS["MEM_GB"]
+    return SPECS
+
 def has_file_been_modified_recently(filepath, recent_threshold_seconds=3600):
     """
     Checks if a file has been modified within a specified recent time threshold.
@@ -54,3 +66,4 @@ def has_file_been_modified_recently(filepath, recent_threshold_seconds=3600):
     current_time = time.time()
 
     return (current_time - last_modified_time) < recent_threshold_seconds
+

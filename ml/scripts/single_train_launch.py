@@ -54,15 +54,23 @@ from constants import (
     PROJECT_SPECS,
 )
 
+torch.utils.data._utils.MP_STATUS_CHECK_INTERVAL = 15
 
 MODEL_CONFIG_LOOKUP = {
+    "olmo2b_10M": TransformerConfig.olmo2b_10M,
+    "olmo2b_20M": TransformerConfig.olmo2b_20M,
+    "olmo2b_50M": TransformerConfig.olmo2b_50M,
+    "olmo2b_500M": TransformerConfig.olmo2b_500M,
+    # "olmo2_0M": TransformerConfig.olmo2_0M,
+    # "olmo2_1M": TransformerConfig.olmo2_1M,
+    # "olmo2_5M": TransformerConfig.olmo2_5M,
     "olmo2_10M": TransformerConfig.olmo2_10M,
     "olmo2_20M": TransformerConfig.olmo2_20M,
     "olmo2_50M": TransformerConfig.olmo2_50M,
     "olmo2_100M": TransformerConfig.olmo2_100M,
     "olmo2_200M": TransformerConfig.olmo2_200M,
     "olmo2_400M": TransformerConfig.olmo2_400M,
-    "olmo2_1B": TransformerConfig.olmo2_1B,
+    "olmo2_1_0B": TransformerConfig.olmo2_1_0B,
 }
 
 TOKENIZER_LOOKUP = {
@@ -74,12 +82,10 @@ DATAMIX_LOOKUP = {
     "OLMoE_mix_1124": DataMix.OLMoE_mix_1124,
     "OLMoE_mix_0824": DataMix.OLMoE_mix_0824,
     "v3_small_ppl_validation": DataMix.v3_small_ppl_validation,
+    "OLMoE_test": DataMix.OLMoE_test,
 }
 
 USER_PROJECT_SPECS = PROJECT_SPECS[os.environ.get('USER', 'default')]
-
-# This will read stream data from the public endpoints by default, but that might be a lot slower
-# than reading data locally.
 
 def get_wandb_tags(
     run_name,
@@ -90,7 +96,6 @@ def get_wandb_tags(
 ):
     """
     Returns a list of tags for W&B runs based on the current configuration.
-    This function can be extended to include more complex logic for generating tags.
     """
     wandb_tags = []
     if len(moe_num_experts_list) > 1:
@@ -140,9 +145,9 @@ def build_config(
     sequence_length: int = 2048,
     global_batch_size: int = 512, # 512 sequences total
     per_gpu_batch_size: int = 4,  # 4 sequences per GPU
-    num_data_workers: int = 2,
+    num_data_workers: int = 4,
     train_tokens: int = 200_000_000,
-    save_interval: int = 200, 
+    save_interval: int = 400, 
     ephemeral_save_interval: int = 50,
     eval_interval: int = 100,
     metrics_collect_interval: int = 10,
@@ -162,6 +167,7 @@ def build_config(
     moe_bias_gamma: Optional[float] = None,
     max_grad_norm: float = 1.0,
     moe_z_loss_weight: float = 0.001,
+    # moe_z_loss_weight: float = 0,
     moe_lb_loss_weight: float = 0.01,
     init_seed: int = 12536,
     wandb_entity: str = USER_PROJECT_SPECS['WANDB_ENTITY'],
@@ -255,6 +261,7 @@ def build_config(
                 entity=wandb_entity,
                 project=wandb_project,
                 cancel_check_interval=10,
+                group="dense" if len(moe_num_experts_list) == 1 and moe_num_experts_list[0] == 1 else "MoE" if len(moe_num_experts_list) == 1 else "HetMoE",
                 tags=get_wandb_tags(run_name, model_name, moe_num_experts_list, moe_generalist_hidden_multiplier, moe_type),
                 enabled=True,  # NOTE: change to true to enable
             ),
@@ -396,7 +403,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str, default="olmo2_100M_moe_32_16", help="Name of the model configuration to use")
     parser.add_argument("--train_datamix_name", type=str, default="OLMoE_mix_0824", help="Name of the training data mix")
     parser.add_argument("--valid_datamix_name", type=str, default="v3_small_ppl_validation", help="Name of the validation data mix")
-    parser.add_argument("--data_root", type=str, default="https://olmo-data.org/", help="Root URL for the data")
+    parser.add_argument("--data_root", type=str, default=USER_PROJECT_SPECS['DATAROOT'], help="Root URL for the data")
     parser.add_argument("--save_root", type=str, default=USER_PROJECT_SPECS['DEFAULT_SAVE_PATH'], help="Parent directory for saving the model")
     parser.add_argument("--valid_data_dir", type=str, default=USER_PROJECT_SPECS['VALID_DATA_DIR'], help="Directory for validation data")
     parser.add_argument("--data_work_dir", type=str, default=USER_PROJECT_SPECS['DATA_WORK_DIR'], help="Working directory for data")
