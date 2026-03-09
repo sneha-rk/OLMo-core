@@ -108,10 +108,10 @@ def get_wandb_tags(
         raise ValueError("moe_num_experts_list must contain at least one element")
     if moe_type == "dropless":
         wandb_tags.append("dropless")
-    if "5XD" in run_name:
-        wandb_tags.append("Data=5C")
-    else:
-        wandb_tags.append("Data=1C")
+    # if "5XD" in run_name:
+    #     wandb_tags.append("Data=5C")
+    # else:
+    #     wandb_tags.append("Data=1C")
     if moe_generalist_hidden_multiplier > 0:
         wandb_tags.append(f"{moe_generalist_hidden_multiplier}gen")
     else:
@@ -236,6 +236,7 @@ def build_config(
             metrics_collect_interval=metrics_collect_interval,
             cancel_check_interval=1,  # Updated from small-moe.py
             max_duration=Duration.tokens(train_tokens),
+            eval_only=True,  # Set to True to only run evaluations without training
         )
         .with_callback("gpu_monitor", GPUMemoryMonitorCallback())
         .with_callback(
@@ -258,6 +259,7 @@ def build_config(
         .with_callback(
             "lm_evaluator",
             LMEvaluatorCallbackConfig(
+                name="lm",
                 eval_dataset=NumpyDatasetConfig.from_data_mix(
                     DATAMIX_LOOKUP[valid_datamix_name],
                     name=NumpyDatasetType.padded_fsl,
@@ -273,6 +275,7 @@ def build_config(
         .with_callback(
             "downstream_evaluator",
             DownstreamEvaluatorCallbackConfig(
+                name="downstream",
                 tasks=[
                     "mmlu_stem_mc_5shot_test",
                     "mmlu_humanities_mc_5shot_test",
@@ -286,6 +289,7 @@ def build_config(
                 eval_on_finish=True,
             ),
         )
+        # THE ORDER HERE MATTERS: WANDB should be last so that it logs metrics from all other callbacks
         .with_callback(
             "wandb",
             WandBCallback(

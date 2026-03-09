@@ -10,7 +10,7 @@ api = wandb.Api(timeout=60)
 # Project is specified by <entity/project-name>
 runs = api.runs("ml-moe/moe")
 # pattern = "(202\d_\d\d_\d\d-\d\d_\d\d_\d\d_(\w+)_olmo2[b]?_(\d+M|1_0B))_e(.+)x(.+)[ec](\d+,\d+|\d+)"
-pattern = "(2026_\d\d_\d\d-\d\d_\d\d_\d\d_(\w+)_olmo2[b]?_(\d+M|1_0B))_e(.+)x(.+)[ec](\d+,\d+|\d+)"
+pattern = "(2026_\d\d_\d\d-\d\d_\d\d_\d\d_(\w+)_(olmo2[b]?_\d+M|1_0B))_e(.+)x(.+)[ec](\d+,\d+|\d+)"
 for run in runs:
     if run.state != "finished": 
         continue
@@ -41,7 +41,8 @@ for run in runs:
         not(os.path.isdir(f"{run_dir}/step954")) and 
         not(os.path.isdir(f"{run_dir}/step1908")) and 
         not(os.path.isdir(f"{run_dir}/step477")) and 
-        not(os.path.isdir(f"{run_dir}/step4769"))
+        not(os.path.isdir(f"{run_dir}/step4769")) and
+        not(os.path.isdir(f"{run_dir}/step9537"))
     ):
         continue
     folder_pattern = f'{run_dir}/step*0'

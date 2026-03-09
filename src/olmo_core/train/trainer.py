@@ -245,6 +245,11 @@ class Trainer:
     This is useful for benchmarking.
     """
 
+    eval_only: bool = False
+    """
+    Only run evals
+    """
+
     # Internal bookkeeping
 
     _metrics: Dict[int, Dict[str, torch.Tensor]] = field(default_factory=OrderedDict)
@@ -319,22 +324,23 @@ class Trainer:
                 log.info("Creating new process group for async bookkeeping")
                 self._bookkeeping_pg = dist.new_group()
 
-        # Check data loader configuration.
-        if self.data_loader.dp_world_size != get_world_size(self.dp_process_group):
-            raise OLMoConfigurationError(
-                "data loader's DP world size appears to be configured incorrectly, "
-                f"got {self.data_loader.dp_world_size}, expected {get_world_size(self.dp_process_group)}."
-            )
-        if self.data_loader.dp_rank != get_rank(self.dp_process_group):
-            raise OLMoConfigurationError(
-                "data loader's DP rank appears to be configured incorrectly, "
-                f"got {self.data_loader.dp_rank}, expected {get_rank(self.dp_process_group)}."
-            )
-        if self.data_loader.fs_local_rank != get_fs_local_rank():
-            raise OLMoConfigurationError(
-                "data loader's FS local rank appears to be configured incorrectly, "
-                f"got {self.data_loader.fs_local_rank}, expected {get_fs_local_rank()}."
-            )
+        if self.data_loader is not None:
+            # Check data loader configuration.
+            if self.data_loader.dp_world_size != get_world_size(self.dp_process_group):
+                raise OLMoConfigurationError(
+                    "data loader's DP world size appears to be configured incorrectly, "
+                    f"got {self.data_loader.dp_world_size}, expected {get_world_size(self.dp_process_group)}."
+                )
+            if self.data_loader.dp_rank != get_rank(self.dp_process_group):
+                raise OLMoConfigurationError(
+                    "data loader's DP rank appears to be configured incorrectly, "
+                    f"got {self.data_loader.dp_rank}, expected {get_rank(self.dp_process_group)}."
+                )
+            if self.data_loader.fs_local_rank != get_fs_local_rank():
+                raise OLMoConfigurationError(
+                    "data loader's FS local rank appears to be configured incorrectly, "
+                    f"got {self.data_loader.fs_local_rank}, expected {get_fs_local_rank()}."
+                )
 
         for callback in self.callbacks.values():
             callback.post_attach()
@@ -613,8 +619,16 @@ class Trainer:
         barrier()
 
         # It's possible that we tried restarting a run that had already finished.
-        if self.training_complete:
+        if self.training_complete and not self.eval_only:
             log.warning("Training already complete, ending run now")
+            self._shutdown()
+            return
+
+        log.info(f"Max duration: {self.max_duration}")
+        log.info(f"Global step: {self.global_step}")
+
+        if self.eval_only and not self.training_complete:
+            log.warning("Eval-only mode enabled but training is not complete, ending run now")
             self._shutdown()
             return
 
@@ -656,7 +670,10 @@ class Trainer:
 
         for callback in self._iter_callbacks():
             callback.post_train()
+        
 
+        # for callback in self._iter_callbacks():
+        #     callback.pre_shutdown()
         # Wait for any bookkeeping tasks to finish.
         self._shutdown()
         log.info("Training complete")
@@ -665,6 +682,10 @@ class Trainer:
         self._log_metrics()
         self.thread_pool.shutdown(wait=True, cancel_futures=False)
         self._thread_pool = None
+
+        for callback in self._iter_callbacks():
+            callback.close()
+            
         gc_cuda()
         barrier()
 
@@ -993,6 +1014,7 @@ class Trainer:
         return callbacks
 
     def _duration_due(self, duration: Duration) -> bool:
+        print(self.global_step, self.global_train_tokens_seen, self.epoch)
         return duration.due(
             step=self.global_step, tokens=self.global_train_tokens_seen, epoch=self.epoch
         )

@@ -188,7 +188,8 @@ PROJECT_SPECS = {
         "PROJECT_DIR": DEFAULT_DIR_PATH,
         "SLURM_ACCOUNT": "zlab",
         "SLURM_PARTITION": "gpu-a40,gpu-l40",
-        "COMMAND_PREFIX": f"{DEFAULT_DIR_PATH}/ml/scripts/single_train_launch.py",
+        "TRAIN_COMMAND_PREFIX": f"{DEFAULT_DIR_PATH}/ml/scripts/single_train_launch.py",
+        "EVAL_COMMAND_PREFIX": f"{DEFAULT_DIR_PATH}/ml/scripts/single_eval_launch.py",
         "NUM_GPUS": 4,
         "MODEL": [],
         "DATAROOT": "https://olmo-data.org/",
@@ -207,7 +208,7 @@ HARDWARE_SPECS_DICT = {
     "all": {
         # "NUM_GPUS": 4,
         "NUM_CPUS": 5,
-        "MEM_GB": 200,
+        "MEM_GB": 120,
         "per_gpu_batch_size": 16,
     },
     "ckpt-g2": {
@@ -220,7 +221,7 @@ HARDWARE_SPECS_DICT = {
     },
     "olmo2b_20M": {
         "all": {
-            "per_gpu_batch_size": 128,
+            "per_gpu_batch_size": 32,
         },
     },
     "olmo2b_50M": {
@@ -239,17 +240,27 @@ HARDWARE_SPECS_DICT = {
     "olmo2_5M": {
     },
     "olmo2_10M": { 
-        "gpu-rtx6k": {
-            "per_gpu_batch_size": 4,
-        }, 
+        "all": {
+            "per_gpu_batch_size": 16,
+            "MEM_GB": 200,
+        },
     },
     "olmo2_20M": { 
+        "all": {
+            "per_gpu_batch_size": 16,
+            "MEM_GB": 200,
+        },
     },
     "olmo2_50M": { 
+        "all": {
+            "per_gpu_batch_size": 16,
+            "MEM_GB": 200,
+        },
     },
     "olmo2_100M": {
         "all": {
             "per_gpu_batch_size": 8,
+            "MEM_GB": 220,
         },
         "gpu-h200": {
             "per_gpu_batch_size": 32,

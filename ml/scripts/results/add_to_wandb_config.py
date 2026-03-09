@@ -22,11 +22,11 @@ MODEL_NAME_LOOKUP = {
 
 summary_list, config_list, name_list = [], [], []
 for run in runs:
-    if "total_expert_dim_mult" in run.config:
-        continue
+    # if "total_expert_dim_mult" in run.config:
+    #     continue
     # if run.state != "finished": 
     #     continue
-    if "olmo2b" not in run.name:
+    if "olmo2_10M" not in run.name and "5CD" not in run.name:
         continue
     if "hidden" in run.tags or "_no_show" in run.tags or "notCM" in run.tags:
         continue
@@ -36,6 +36,7 @@ for run in runs:
     all_dims = []
     expt_dims = []
     pattern = "(202\d_\d\d_\d\d-\d\d_\d\d_\d\d_(\w+)_(olmo2[b]?_\d+M|1_0B))_e(.+)x(.+)[ec](\d+,\d+|\d+)(?:_(.+)gen|)(?:_lr=(.+)|)?"
+    # pattern = "(2026_\d\d_\d\d-\d\d_\d\d_\d\d_(\w+)_(olmo2[b]?_\d+M|1_0B))_e(.+)x(.+)[ec](\d+,\d+|\d+)(?:_(.+)gen|)(?:_lr=(.+)|)?"
 
     match = re.match(pattern, run.name)
     if match is None:
