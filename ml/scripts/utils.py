@@ -36,15 +36,21 @@ def dict_update(d, u):
             d[k] = v
     return d
 
-def get_specs_for_user_and_model(USER_SPECS, HARDWARE_SPECS_DICT, model, partition, gpus, cpus, mem):
+def get_specs_for_user_and_model(USER_SPECS, HARDWARE_SPECS_DICT, model, partition, gpus, cpus, mem, overrides=None, gpu_type=None):
     SPECS = copy(USER_SPECS)
     SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT.get('all', {}))
     SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT.get(partition, {}))
     SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT[model].get("all", {}))
     SPECS = dict_update(SPECS, HARDWARE_SPECS_DICT[model].get(partition, {}))
+    if overrides:
+        for key, value in overrides.items():
+            if key in SPECS:
+                SPECS[key] = type(SPECS[key])(value)
     SPECS['NUM_GPUS'] = gpus or SPECS['NUM_GPUS']
     SPECS["NUM_CPUS"] = cpus or SPECS["NUM_CPUS"]
     SPECS["MEM_GB"] = mem or SPECS["MEM_GB"]
+    if gpu_type is not None:
+        SPECS["GPU_TYPE"] = gpu_type
     return SPECS
 
 def has_file_been_modified_recently(filepath, recent_threshold_seconds=3600):
@@ -88,13 +94,18 @@ def filter_training_incomplete(train_sweep_dir, final_jobs_dict, final_jobs_name
     run_dirs = glob.glob(os.path.join(train_sweep_dir, '*{sweep_name}*', ''), recursive=True)
 
     step_count_lookup = {
-        'olmo2_10M': 954,
-        'olmo2_20M': 1908,
-        'olmo2_50M': 4769,
-        'olmo2_100M': 9537,
-        'olmo2b_10M': 191,
-        'olmo2b_20M': 382,
-        'olmo2b_50M': 954,
+        '1CD':{
+            'olmo2_10M': 954,
+            'olmo2_20M': 1908,
+            'olmo2_50M': 4769,
+            'olmo2_100M': 9537,
+            'olmo2b_10M': 191,
+            'olmo2b_20M': 382,
+            'olmo2b_50M': 954,
+        },
+        '5CD': {
+            'olmo2b_20M': 1908,
+        }
     }
     pattern = "(202\d_\d\d_\d\d-\d\d_\d\d_\d\d_(\w+)_(olmo2[b]?_\d+M|1_0B))_e(.+)x(.+)[ec](\d+,\d+|\d+)"
 
@@ -105,12 +116,22 @@ def filter_training_incomplete(train_sweep_dir, final_jobs_dict, final_jobs_name
             continue
         sweep_name = match.group(1)
         run_dir = os.path.join(train_sweep_dir, job_name)
-        if (
-            os.path.isdir(
-                f"{run_dir}/step{step_count_lookup.get(match.group(3), 0)}"
-        )):
-            filtered_job_names.append(job_name)
-            filtered_job_dict[job_name] = final_jobs_dict[job_name]
+        # if '2026_02_26-10_58_23_default_lf_olmo2b_10M_e62x0.25c2_0.5gen' in job_name:
+        #     continue
+        if '5CD' not in job_name:
+            if (
+                os.path.isdir(
+                    f"{run_dir}/step{step_count_lookup['1CD'].get(match.group(3), 0)}"
+            )):
+                filtered_job_names.append(job_name)
+                filtered_job_dict[job_name] = final_jobs_dict[job_name]
+        else:
+            if (
+                os.path.isdir(
+                    f"{run_dir}/step{step_count_lookup['5CD'].get(match.group(3), 0)}"
+            )):
+                filtered_job_names.append(job_name)
+                filtered_job_dict[job_name] = final_jobs_dict[job_name]
     return filtered_job_names, filtered_job_dict
 
 def filter_eval_done(train_sweep_dir, final_jobs_dict, final_jobs_names):

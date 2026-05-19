@@ -1,5 +1,6 @@
 import logging
 import os
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, TYPE_CHECKING, Any, Dict, List, Optional
@@ -143,9 +144,12 @@ class WandBCallback(Callback):
             # final_metrics = {k: metrics[k] for k in metrics if 'final_eval/' in k}
             # metrics = {k: metrics[k] for k in metrics if 'final_eval/' not in k}
             # self.wandb.log(metrics, step=step)
+            
             if self.trainer.eval_only:
-                step += 1
+                step += 2
             self.wandb.log(metrics, step=step)
+
+            # self.wandb.log(metrics, step=step)
 
     def post_step(self):
         cancel_check_interval = self.cancel_check_interval or self.trainer.cancel_check_interval

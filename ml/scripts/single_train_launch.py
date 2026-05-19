@@ -51,7 +51,7 @@ from olmo_core.train.train_module import (
 from olmo_core.utils import seed_all
 
 from constants import (
-    PROJECT_SPECS,
+    PROJECT_SPECS, MODEL_NAME_LOOKUP
 )
 
 torch.utils.data._utils.MP_STATUS_CHECK_INTERVAL = 15
@@ -65,7 +65,9 @@ MODEL_CONFIG_LOOKUP = {
     # "olmo2_1M": TransformerConfig.olmo2_1M,
     # "olmo2_5M": TransformerConfig.olmo2_5M,
     "olmo2_10M": TransformerConfig.olmo2_10M,
+    "olmo2_10M_fm1": TransformerConfig.olmo2_10M_fm1,
     "olmo2_20M": TransformerConfig.olmo2_20M,
+    "olmo2_20M_fm1": TransformerConfig.olmo2_20M_fm1,
     "olmo2_50M": TransformerConfig.olmo2_50M,
     "olmo2_100M": TransformerConfig.olmo2_100M,
     "olmo2_200M": TransformerConfig.olmo2_200M,
@@ -86,6 +88,36 @@ DATAMIX_LOOKUP = {
 }
 
 USER_PROJECT_SPECS = PROJECT_SPECS[os.environ.get('USER', 'default')]
+
+def update_config_for_wandb(config_dict):
+    # Create a copy of the config dict to modify
+    wandb_config = config_dict.copy()
+
+    # model_size_name, num_active_params = MODEL_NAME_LOOKUP.get(config_dict.get("model", {}).get("name", "unknown"), (None, None))
+    # wandb_config["model_size_name"] = model_size_name
+    # wandb_config["num_active_params"] = num_active_params
+
+    # all_dims, expt_dims = [], []
+    # try: # moe model
+    #     num_expts = wandb_config["model"]["block"]["feed_forward_moe"]["num_experts_list"]
+    #     hidden_sizes = wandb_config["model"]["block"]["feed_forward_moe"]["hidden_sizes_list"]
+    #     ffn_hsz = float(wandb_config["model"]["d_model"]) * 4
+    #     generalist_hsz = wandb_config.get("model", {}).get("block", {}).get("feed_forward", {}).get("hidden_size")
+    #     generalist_mult = generalist_hsz / ffn_hsz if generalist_hsz is not None else None
+    #     for num_expt, hsz in zip(num_expts, hidden_sizes):
+    #         all_dims.append(float(num_expt) * float(hsz))
+    #         expt_dims.append(float(hsz)/ffn_hsz)
+        # total_dim = sum(all_dims)
+        # wandb_config["total_expert_dim_mult"] = total_dim / ffn_hsz
+        # wandb_config["generalist_dim_mult"] = generalist_mult
+        # wandb_config["total_ffn_dim_mult"] = (total_dim ) / ffn_hsz + generalist_mult
+        # wandb_config["expert_mults_list"] = expt_dims
+        # wandb_config["moe_bias_gamma"] = wandb_config["model"]["block"].get("feed_forward_moe", {}).get("routers_list", [{}])[0].get("bias_gamma")
+
+    # except: # dense model
+        # wandb_config["total_ffn_dim_mult"] = 1
+
+    return wandb_config
 
 def get_wandb_tags(
     run_name,
@@ -116,6 +148,9 @@ def get_wandb_tags(
         wandb_tags.append(f"{moe_generalist_hidden_multiplier}gen")
     else:
         wandb_tags.append("nogen")
+
+    if "uniform" in run_name:
+        wandb_tags.append("uniform")
     
     wandb_tags.append(model_name.split('_')[1])  # e.g., "100M", "1B"
 
@@ -144,7 +179,7 @@ def build_config(
     data_work_dir: str = USER_PROJECT_SPECS['DATA_WORK_DIR'],
     sequence_length: int = 2048,
     global_batch_size: int = 512, # 512 sequences total
-    per_gpu_batch_size: int = 4,  # 4 sequences per GPU
+    per_gpu_batch_size: int = 16,  # 16 sequences per GPU
     num_data_workers: int = 4,
     train_tokens: int = 200_000_000,
     save_interval: int = 400, 
@@ -169,6 +204,7 @@ def build_config(
     moe_z_loss_weight: float = 0.001,
     # moe_z_loss_weight: float = 0,
     moe_lb_loss_weight: float = 0.01,
+    expert_assignment: str = "learned",
     init_seed: int = 12536,
     wandb_entity: str = USER_PROJECT_SPECS['WANDB_ENTITY'],
     wandb_project: str = USER_PROJECT_SPECS['WANDB_PROJECT'],
@@ -188,6 +224,7 @@ def build_config(
         bias_gamma=moe_bias_gamma,
         z_loss_weight=moe_z_loss_weight,
         lb_loss_weight=moe_lb_loss_weight if moe_lb_loss_weight > 0 else None,
+        uniform_expert_assignment=True if expert_assignment == "uniform" else False,
     )
 
     dataset_config = NumpyDatasetConfig.from_data_mix(
@@ -294,7 +331,7 @@ def build_config(
                 project=wandb_project,
                 cancel_check_interval=10,
                 group="dense" if len(moe_num_experts_list) == 1 and moe_num_experts_list[0] == 1 else "MoE" if len(moe_num_experts_list) == 1 else "HetMoE",
-                tags=get_wandb_tags(run_name, model_name, moe_num_experts_list, moe_generalist_hidden_multiplier, moe_type),
+                # tags=get_wandb_tags(run_name, model_name, moe_num_experts_list, moe_generalist_hidden_multiplier, moe_type),
                 enabled=True,  # NOTE: change to true to enable
             ),
         )
@@ -354,6 +391,7 @@ def main(
             moe_bias_gamma=args.moe_bias_gamma,
             moe_z_loss_weight=args.moe_z_loss_weight,
             moe_lb_loss_weight=args.moe_lb_loss_weight,
+            expert_assignment=args.expert_assignment,
             overrides=overrides)
         # config = build_config(run_name)
         logger.info("Config built successfully")
@@ -378,7 +416,7 @@ def main(
         # Save config to W&B and each checkpoint dir.
         config_dict = config.as_config_dict()
         cast(CometCallback, trainer.callbacks["comet"]).config = config_dict
-        cast(WandBCallback, trainer.callbacks["wandb"]).config = config_dict
+        cast(WandBCallback, trainer.callbacks["wandb"]).config = update_config_for_wandb(config_dict)
         cast(ConfigSaverCallback, trainer.callbacks["config_saver"]).config = config_dict
 
         # Train.
@@ -421,6 +459,8 @@ if __name__ == "__main__":
     parser.add_argument("--moe_bias_gamma", type=float, default=None, help="Gamma value for MoE bias")
     parser.add_argument("--moe_z_loss_weight", type=float, default=0.001, help="Weight for the z-loss in MoE")
     parser.add_argument("--moe_lb_loss_weight", type=float, default=0.01, help="Weight for the LB loss in MoE")
+    parser.add_argument("--expert_assignment", type=str, default="learned", choices=["learned", "uniform"])
+    parser.add_argument("--init_seed", type=int, default=12536, help="Initial seed for RNG")
     args, overrides = parser.parse_known_args()
 
     # run_name, *overrides = sys.argv[1:]

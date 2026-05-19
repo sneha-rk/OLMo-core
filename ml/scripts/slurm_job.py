@@ -164,6 +164,7 @@ def run_grid(
     name_keys=[],
     prefix=None,
     gpus=1,
+    gpu_type=None,
     cpus=10,
     nodes=1,
     node_exclude=None,
@@ -440,6 +441,7 @@ def run_grid(
         SWEEP_NAME=sweep_name,
         SAVE_ROOT=SAVE_ROOT,
         gpus=gpus,
+        gpu_type=gpu_type,
         cpus=cpus,
         nodes=nodes,
         node_exclude=node_exclude,
@@ -509,6 +511,7 @@ def submit_array_jobs(
     SWEEP_NAME,
     SAVE_ROOT,
     gpus=1,
+    gpu_type=None,
     cpus=1,
     nodes=1,
     node_exclude=None,
@@ -554,10 +557,10 @@ def submit_array_jobs(
 
     # Request the number of GPUs (defaults to 1)
     if gpus > 0:
-        if gpus > 8:
-            gpustr = '#SBATCH --gpus-per-node=8'
-        else:
-            gpustr = '#SBATCH --gpus-per-node={}'.format(gpus)
+        gpus_per_node = str(min(gpus, 8))
+        if gpu_type:
+            gpus_per_node = gpu_type + ':' + gpus_per_node
+        gpustr = '#SBATCH --gpus-per-node={}'.format(gpus_per_node)
         SBATCH_EXTRAS.append(gpustr)
 
     if constraints:

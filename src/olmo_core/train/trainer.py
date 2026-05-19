@@ -711,18 +711,18 @@ class Trainer:
         # For backwards compatibility.
         if "data_loader" not in state_dict:
             if "dataset" in state_dict:
-                state_dict["data_loader"] = state_dict.pop("dataset")
+                state_dict["data_loader"] = state_dict.get("dataset")
                 state_dict["data_loader"]["epoch"] = state_dict["epoch"]
             else:
                 state_dict["data_loader"] = {
                     "dataset_type": "fsl",
-                    "dataset_fingerprint_version": state_dict.pop("dataset_fingerprint_version"),
-                    "dataset_fingerprint": state_dict.pop("dataset_fingerprint"),
+                    "dataset_fingerprint_version": state_dict.get("dataset_fingerprint_version"),
+                    "dataset_fingerprint": state_dict.get("dataset_fingerprint"),
                     "tokens_processed": state_dict["global_train_tokens_seen_this_epoch"],
                     "batches_processed": state_dict["global_train_tokens_seen_this_epoch"]
                     // self.global_batch_size,
-                    "sequence_length": state_dict.pop("train_sequence_length"),
-                    "max_target_sequence_length": state_dict.pop("max_train_sequence_length"),
+                    "sequence_length": state_dict.get("train_sequence_length"),
+                    "max_target_sequence_length": state_dict.get("max_train_sequence_length"),
                     "seed": state_dict["data_seed"],
                     "epoch": state_dict["epoch"],
                 }
@@ -1014,7 +1014,6 @@ class Trainer:
         return callbacks
 
     def _duration_due(self, duration: Duration) -> bool:
-        print(self.global_step, self.global_train_tokens_seen, self.epoch)
         return duration.due(
             step=self.global_step, tokens=self.global_train_tokens_seen, epoch=self.epoch
         )

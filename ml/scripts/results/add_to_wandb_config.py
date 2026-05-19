@@ -26,22 +26,22 @@ for run in runs:
     #     continue
     # if run.state != "finished": 
     #     continue
-    if "olmo2_10M" not in run.name and "5CD" not in run.name:
-        continue
-    if "hidden" in run.tags or "_no_show" in run.tags or "notCM" in run.tags:
+    # if "2026" not in run.name and "5CD" not in run.name:
+    #     continue
+    if "hidden" in run.tags or "_no_show" in run.tags or "notCM" in run.tags or "notEmatched" in run.tags:
         continue
     # print(run.config)
     # import pdb;pdb.set_trace()
 
     all_dims = []
     expt_dims = []
-    pattern = "(202\d_\d\d_\d\d-\d\d_\d\d_\d\d_(\w+)_(olmo2[b]?_\d+M|1_0B))_e(.+)x(.+)[ec](\d+,\d+|\d+)(?:_(.+)gen|)(?:_lr=(.+)|)?"
-    # pattern = "(2026_\d\d_\d\d-\d\d_\d\d_\d\d_(\w+)_(olmo2[b]?_\d+M|1_0B))_e(.+)x(.+)[ec](\d+,\d+|\d+)(?:_(.+)gen|)(?:_lr=(.+)|)?"
+    pattern = "(2026_\d\d_\d\d-\d\d_\d\d_\d\d_(\w+)_(olmo2[b]?_\d+M|1_0B))_e(.+)x(.+)[ec](\d+,\d+|\d+)(?:_(.+)gen|)(?:_lr=(.+)|)?"
+    # pattern = "(2026_03_\d\d-\d\d_\d\d_\d\d_(\w+)_(olmo2[b]?_\d+M|1_0B))_e(.+)x(.+)[ec](\d+,\d+|\d+)(?:_(.+)gen|)(?:_lr=(.+)|)?"
 
     match = re.match(pattern, run.name)
     if match is None:
         print(f"==No regex match for run {run.name}")
-        if "hidden" not in run.tags: run.tags.append("hidden"); run.update()
+        # if "hidden" not in run.tags: run.tags.append("hidden"); run.update()
         continue
 
     try:

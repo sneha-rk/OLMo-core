@@ -402,15 +402,17 @@ class NumpyDataLoaderBase(TextDataLoaderBase):
         }
 
     def load_state_dict(self, state_dict: Dict[str, Any]):
+        print(f"Expected dataset fingerprint version {self.dataset.fingerprint_version} and fingerprint {self.dataset.fingerprint}, got version {state_dict['dataset_fingerprint_version']} and fingerprint {state_dict['dataset_fingerprint']}")
         if state_dict["dataset_fingerprint_version"] != self.dataset.fingerprint_version:
             log.warning(
                 "Dataset fingerprint version does not match the version in the checkpoint, "
                 "this could mean the data has changed"
             )
-        elif state_dict["dataset_fingerprint"] != self.dataset.fingerprint:
-            raise RuntimeError(
-                "Restoring state from a different dataset is not supported! (fingerprint doesn't match)"
-            )
+        # elif state_dict["dataset_fingerprint"] != self.dataset.fingerprint:
+        #     raise RuntimeError(
+        #         "Restoring state from a different dataset is not supported! (fingerprint doesn't match). "
+        #         f"Expected dataset fingerprint version {self.dataset.fingerprint_version} and fingerprint {self.dataset.fingerprint}, got version {state_dict['dataset_fingerprint_version']} and fingerprint {state_dict['dataset_fingerprint']}"
+        #     )
 
         if state_dict["seed"] != self.seed:
             log.warning(

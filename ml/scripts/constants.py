@@ -7,6 +7,16 @@ import os
 
 DEFAULT_DIR_PATH = '/'.join(os.path.normpath(os.path.realpath(__file__)).split(os.path.sep)[:-3])
 
+MODEL_NAME_LOOKUP = { # model name, num active params
+    'olmo2_10M': ('80M', 81898320),
+    'olmo2_20M': ('110M', 113593968),
+    'olmo2_50M': ('200M', 194012800),
+    'olmo2_100M': ('300M', 299933504),
+    'olmo2b_10M': ('10M', 9745008),
+    'olmo2b_20M': ('20M', 19859040),
+    'olmo2b_50M': ('50M', 52782000),
+}
+
 MODEL_HP_DEFAULTS = {
     "all": {
         "global_batch_size": [512],
@@ -101,6 +111,31 @@ MODEL_HP_DEFAULTS = {
         },
     },
     "olmo2_20M": { # actually 110M
+        "train_module": {
+            "optim": {
+                # "lr": [4e-3],
+            },
+        },
+        "trainer": {
+            "max_duration": {
+                "value": [2000000000],
+            },
+        },
+    },
+    "olmo2_10M_fm1": { # actually 80M
+        "train_module": {
+            "optim": {
+                # "lr": [4e-3],
+            },
+        },
+        "trainer": {
+            "max_duration": {
+                "value": [1000000000],
+                # "value": [1600000000],
+            },
+        },
+    },
+    "olmo2_20M_fm1": { # actually 110M
         "train_module": {
             "optim": {
                 # "lr": [4e-3],
@@ -246,6 +281,18 @@ HARDWARE_SPECS_DICT = {
         },
     },
     "olmo2_20M": { 
+        "all": {
+            "per_gpu_batch_size": 16,
+            "MEM_GB": 200,
+        },
+    },
+    "olmo2_10M_fm1": { 
+        "all": {
+            "per_gpu_batch_size": 16,
+            "MEM_GB": 200,
+        },
+    },
+    "olmo2_20M_fm1": { 
         "all": {
             "per_gpu_batch_size": 16,
             "MEM_GB": 200,

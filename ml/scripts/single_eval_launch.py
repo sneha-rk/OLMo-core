@@ -169,6 +169,7 @@ def build_config(
     moe_z_loss_weight: float = 0.001,
     # moe_z_loss_weight: float = 0,
     moe_lb_loss_weight: float = 0.01,
+    expert_assignment: str = "learned",
     init_seed: int = 12536,
     wandb_entity: str = USER_PROJECT_SPECS['WANDB_ENTITY'],
     wandb_project: str = USER_PROJECT_SPECS['WANDB_PROJECT'],
@@ -188,6 +189,7 @@ def build_config(
         bias_gamma=moe_bias_gamma,
         z_loss_weight=moe_z_loss_weight,
         lb_loss_weight=moe_lb_loss_weight if moe_lb_loss_weight > 0 else None,
+        uniform_expert_assignment=True if expert_assignment == "uniform" else False,
     )
 
     dataset_config = NumpyDatasetConfig.from_data_mix(
@@ -358,6 +360,7 @@ def main(
             moe_bias_gamma=args.moe_bias_gamma,
             moe_z_loss_weight=args.moe_z_loss_weight,
             moe_lb_loss_weight=args.moe_lb_loss_weight,
+            expert_assignment=args.expert_assignment,
             overrides=overrides)
         # config = build_config(run_name)
         logger.info("Config built successfully")
@@ -425,6 +428,7 @@ if __name__ == "__main__":
     parser.add_argument("--moe_bias_gamma", type=float, default=None, help="Gamma value for MoE bias")
     parser.add_argument("--moe_z_loss_weight", type=float, default=0.001, help="Weight for the z-loss in MoE")
     parser.add_argument("--moe_lb_loss_weight", type=float, default=0.01, help="Weight for the LB loss in MoE")
+    parser.add_argument("--expert_assignment", type=str, default="learned", choices=["learned", "uniform"])
     args, overrides = parser.parse_known_args()
 
     # run_name, *overrides = sys.argv[1:]

@@ -17,11 +17,13 @@ MODELS = [
     # 'olmo2_50M',
     # 'olmo2_20M',
     # 'olmo2_10M',
+    # 'olmo2_20M_fm1',
+    # 'olmo2_10M_fm1',
     # 'olmo2_5M',
     # 'olmo2_1M',
     # 'olmo2b_500M',
-    # 'olmo2b_50M',
-    'olmo2b_20M',
+    'olmo2b_50M',
+    # 'olmo2b_20M',
     # 'olmo2b_10M',
 ]
 SPECS_KEYS_TO_IGNORE = ['per_gpu_batch_size', 'MEM_GB']
@@ -38,12 +40,14 @@ def main(
     partition=None,
     job_time='24:00:00',
     gpus=None,
+    gpu_type=None,
     cpus=None,
     mem=None,
     include_jobs_indices=None,
     ignore_specs_check_keys=["NUM_CPUS", "MEM_GB", "JOBTIME", "CONDA_ENV_NAME"],
     filter_succeeded=True,
     filter_running=True,
+    overrides=None,
     **kwargs,
 ):
     if account is None or partition is None:
@@ -56,6 +60,8 @@ def main(
     if user not in PROJECT_SPECS:
         raise ValueError(f"User {user} not found in PROJECT_SPECS. Please add your user to the PROJECT_SPECS dictionary.")
     USER_SPECS = PROJECT_SPECS[user]
+    overrides = {s.split('=')[0]: s.split('=')[1] for s in overrides.split(';')}  if overrides else None
+
 
     if relaunch_path or relaunch_name:
         if relaunch_name and relaunch_path:
@@ -71,7 +77,7 @@ def main(
         grid = json.load(open(path_to_grid_file, 'r'))
         model = grid.get('main_grid', {}).get('model_name', [None])[0]
 
-        SPECS = get_specs_for_user_and_model(USER_SPECS, HARDWARE_SPECS_DICT, model, partition, gpus, cpus, mem)
+        SPECS = get_specs_for_user_and_model(USER_SPECS, HARDWARE_SPECS_DICT, model, partition, gpus, cpus, mem, overrides,gpu_type=gpu_type)
 
         if os.path.exists(path_to_specs):
             old_specs = json.load(open(path_to_specs, 'r'))
@@ -83,14 +89,19 @@ def main(
                         continue
                     assert SPECS.get(key) == old_specs[key], f"Specs mismatch for {key}: {SPECS.get(key)} != {old_specs[key]}"
         
+
+        grid = dict_update(grid, overrides) if overrides else grid
+        # print(f"Relaunching sweep from {relaunch_path} with grid {grid} and specs {SPECS}")
         run_grid(
             grid,
+            job_spec_keys= JOB_SPEC_KEYS,
             default_grid=dict_update(copy(MODEL_HP_DEFAULTS['all']), MODEL_HP_DEFAULTS.get(model, {})),
             sweep_name=model_sweep_name,
             specs=SPECS,
             name_keys=SPECS.get("NAME_KEYS", []),
             prefix=SPECS['TRAIN_COMMAND_PREFIX'],
             gpus=SPECS['NUM_GPUS'],
+            gpu_type=(gpu_type if gpu_type else SPECS.get("GPU_TYPE", None)),
             cpus=SPECS["NUM_CPUS"],
             nodes=((SPECS['NUM_GPUS'] - 1) // 8 + 1),
             node_exclude=None,
@@ -131,7 +142,7 @@ def main(
         for model in MODELS:
             model_sweep_name = f"{SWEEP_NAME}_{model}" if add_model_to_name == 'end' else SWEEP_NAME
 
-            SPECS = get_specs_for_user_and_model(USER_SPECS, HARDWARE_SPECS_DICT, model, partition, gpus, cpus, mem)
+            SPECS = get_specs_for_user_and_model(USER_SPECS, HARDWARE_SPECS_DICT, model, partition, gpus, cpus, mem, overrides, gpu_type=gpu_type)
             
             grid = {
                 # main_grid is the top-level grid, the sweep will run over all combinations of these hyperparameters, 
@@ -142,9 +153,11 @@ def main(
                     # "scheduler": ["wsd"],
                     "moe_type": ["dropless"],
                     # "moe_type": ["default"],
-                    "moe_bias_gamma": [0.001],  # None for default, or specify a float value
+                    # "moe_bias_gamma": [0.001],  # None for default, or specify a float value
                     "moe_lb_loss_weight": [0.01], # Weight for the lb-loss in MoE
                     # "moe_lb_loss_weight": [0.0001],  # Weight for the lb-loss in MoE
+                    "expert_assignment": ["learned"],
+                    # "expert_assignment": ["uniform"],
                     'train_module': {
                         'optim': {
                             # 'lr': [4e-3, 1e-2],
@@ -154,9 +167,10 @@ def main(
                     },
                     "trainer": {
                         "max_duration": {
-                            # "value": [2000000000],
+                            # "value": [4000000000],
                         },
                     },
+                    # "init_seed": [1, 12, 125, 1253],
                 },
                 # allows you to bundle multiple hyperparameters together
                 "subgrids": {
@@ -166,7 +180,7 @@ def main(
                     # "e2x0.5c2_nogen": {"moe_num_experts_list": ["2"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e4x0.25c4_nogen": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e8x0.125c8_nogen": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
-                    
+
                     # "e2x1c1_nogen": {"moe_num_experts_list": ["2"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e4x0.5c2_nogen": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e8x0.25c4_nogen": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
@@ -174,15 +188,15 @@ def main(
                     # "e32x0.0625c16_nogen": {"moe_num_experts_list": ["32"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["16"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e64x0.03125c32_nogen": {"moe_num_experts_list": ["64"], "moe_hidden_multipliers_list": ["0.03125"], "moe_router_top_ks_list": ["32"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e128x0.015625c64_nogen": {"moe_num_experts_list": ["128"], "moe_hidden_multipliers_list": ["0.015625"], "moe_router_top_ks_list": ["64"], "moe_generalist_hidden_multiplier": ["0"]},
-                    
+
                     # "e4x1c1_nogen": {"moe_num_experts_list": ["4"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e8x0.5c2_nogen": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e16x0.25c4_nogen": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e32x0.125c8_nogen": {"moe_num_experts_list": ["32"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e64x0.0625c16_nogen": {"moe_num_experts_list": ["64"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["16"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e128x0.03125c32_nogen": {"moe_num_experts_list": ["128"], "moe_hidden_multipliers_list": ["0.03125"], "moe_router_top_ks_list": ["32"], "moe_generalist_hidden_multiplier": ["0"]},
-                    "e256x0.015625c64_nogen": {"moe_num_experts_list": ["256"], "moe_hidden_multipliers_list": ["0.015625"], "moe_router_top_ks_list": ["64"], "moe_generalist_hidden_multiplier": ["0"]},
-                    
+                    # "e256x0.015625c64_nogen": {"moe_num_experts_list": ["256"], "moe_hidden_multipliers_list": ["0.015625"], "moe_router_top_ks_list": ["64"], "moe_generalist_hidden_multiplier": ["0"]},
+
                     # "e8x1c1_nogen": {"moe_num_experts_list": ["8"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e16x0.5c2_nogen": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e32x0.25c4_nogen": {"moe_num_experts_list": ["32"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
@@ -190,19 +204,20 @@ def main(
                     # "e128x0.0625c16_nogen": {"moe_num_experts_list": ["128"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["16"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e256x0.03125c32_nogen": {"moe_num_experts_list": ["256"], "moe_hidden_multipliers_list": ["0.03125"], "moe_router_top_ks_list": ["32"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e512x0.015625c64_nogen": {"moe_num_experts_list": ["512"], "moe_hidden_multipliers_list": ["0.015625"], "moe_router_top_ks_list": ["64"], "moe_generalist_hidden_multiplier": ["0"]},
-                    
+
                     # "e16x1c1_nogen": {"moe_num_experts_list": ["16"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e32x0.5c2_nogen": {"moe_num_experts_list": ["32"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e64x0.25c4_nogen": {"moe_num_experts_list": ["64"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
-                    
                     # "e128x0.125c8_nogen": {"moe_num_experts_list": ["128"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e256x0.0625c16_nogen": {"moe_num_experts_list": ["256"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["16"], "moe_generalist_hidden_multiplier": ["0"]},
-                    
+                    # "e512x0.03125c32_nogen": {"moe_num_experts_list": ["512"], "moe_hidden_multipliers_list": ["0.03125"], "moe_router_top_ks_list": ["32"], "moe_generalist_hidden_multiplier": ["0"]},
+
+                    # "e32x1c1_nogen": {"moe_num_experts_list": ["32"], "moe_hidden_multipliers_list": ["1"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e64x0.5c2_nogen": {"moe_num_experts_list": ["64"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e128x0.25c4_nogen": {"moe_num_experts_list": ["128"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e256x0.125c8_nogen": {"moe_num_experts_list": ["256"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e512x0.0625c16_nogen": {"moe_num_experts_list": ["512"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["16"], "moe_generalist_hidden_multiplier": ["0"]},
-                    
+
                     # "e128x0.5c2_nogen": {"moe_num_experts_list": ["128"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e256x0.25c4_nogen": {"moe_num_experts_list": ["256"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e512x0.125c8_nogen": {"moe_num_experts_list": ["512"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
@@ -211,59 +226,86 @@ def main(
 
                     # "e256x0.5c2_nogen": {"moe_num_experts_list": ["256"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e512x0.25c4_nogen": {"moe_num_experts_list": ["512"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
-                    
+                    # "e1024x0.125c8_nogen": {"moe_num_experts_list": ["1024"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
+
                     # "e512x0.5c2_nogen": {"moe_num_experts_list": ["512"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e1024x0.25c4_nogen": {"moe_num_experts_list": ["1024"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e2048x0.125c8_nogen": {"moe_num_experts_list": ["2048"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e4096x0.0625c16_nogen": {"moe_num_experts_list": ["4096"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["16"], "moe_generalist_hidden_multiplier": ["0"]},
                     
                     # "e1024x0.5c2_nogen": {"moe_num_experts_list": ["1024"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e2048x0.25c4_nogen": {"moe_num_experts_list": ["2048"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e4096x0.125c8_nogen": {"moe_num_experts_list": ["4096"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
                     
-                    # ###
+                    # "e2048x0.5c2_nogen": {"moe_num_experts_list": ["2048"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
+                    "e4096x0.25c4_nogen": {"moe_num_experts_list": ["4096"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    
+                    "e4096x0.5c2_nogen": {"moe_num_experts_list": ["4096"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
+                    "e8192x0.25c4_nogen": {"moe_num_experts_list": ["8192"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0"]},
+
+                    # "e8192x0.5c2_nogen": {"moe_num_experts_list": ["8192"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0"]},
+
+
+                    ###
                     # "e4,8x0.5,0.25c1,2_nogen": {"moe_num_experts_list": ["4,8"], "moe_hidden_multipliers_list": ["0.5,0.25"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e8,16x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["8,16"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e16,32x0.125,0.0625c4,8_nogen": {"moe_num_experts_list": ["16,32"], "moe_hidden_multipliers_list": ["0.125,0.0625"], "moe_router_top_ks_list": ["4,8"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e32,64x0.0625,0.03125c8,16_nogen": {"moe_num_experts_list": ["32,64"], "moe_hidden_multipliers_list": ["0.0625,0.03125"], "moe_router_top_ks_list": ["8,16"], "moe_generalist_hidden_multiplier": ["0"]},
 
                     # "e8,16x0.5,0.25c1,2_nogen": {"moe_num_experts_list": ["8,16"], "moe_hidden_multipliers_list": ["0.5,0.25"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e16,32x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["16,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e32,64x0.125,0.0625c4,8_nogen": {"moe_num_experts_list": ["32,64"], "moe_hidden_multipliers_list": ["0.125,0.0625"], "moe_router_top_ks_list": ["4,8"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e64,128x0.0625,0.03125c8,16_nogen": {"moe_num_experts_list": ["64,128"], "moe_hidden_multipliers_list": ["0.0625,0.03125"], "moe_router_top_ks_list": ["8,16"], "moe_generalist_hidden_multiplier": ["0"]},
 
                     # "e16,32x0.5,0.25c1,2_nogen": {"moe_num_experts_list": ["16,32"], "moe_hidden_multipliers_list": ["0.5,0.25"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e32,64x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["32,64"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e64,128x0.125,0.0625c4,8_nogen": {"moe_num_experts_list": ["64,128"], "moe_hidden_multipliers_list": ["0.125,0.0625"], "moe_router_top_ks_list": ["4,8"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e128,256x0.0625,0.03125c8,16_nogen": {"moe_num_experts_list": ["128,256"], "moe_hidden_multipliers_list": ["0.0625,0.03125"], "moe_router_top_ks_list": ["8,16"], "moe_generalist_hidden_multiplier": ["0"]},
 
                     # "e32,64x0.5,0.25c1,2_nogen": {"moe_num_experts_list": ["32,64"], "moe_hidden_multipliers_list": ["0.5,0.25"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e64,128x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["64,128"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e128,256x0.125,0.0625c4,8_nogen": {"moe_num_experts_list": ["128,256"], "moe_hidden_multipliers_list": ["0.125,0.0625"], "moe_router_top_ks_list": ["4,8"], "moe_generalist_hidden_multiplier": ["0"]},
+                    
+                    
                     # ###
 
                     # "e4,16x0.5,0.125c1,4_nogen": {"moe_num_experts_list": ["4,16"], "moe_hidden_multipliers_list": ["0.5,0.125"], "moe_router_top_ks_list": ["1,4"], "moe_generalist_hidden_multiplier": ["0"]},
-                    # "e16,16,32x0.5,0.25,0.125c1,2,4_nogen": {"moe_num_experts_list": ["16,16,32"], "moe_hidden_multipliers_list": ["0.5,0.25,0.125"], "moe_router_top_ks_list": ["1,2,4"], "moe_generalist_hidden_multiplier": ["0"]},
-                    # "e32,32,64x0.5,0.25,0.125c1,2,4_nogen": {"moe_num_experts_list": ["32,32,64"], "moe_hidden_multipliers_list": ["0.5,0.25,0.125"], "moe_router_top_ks_list": ["1,2,4"], "moe_generalist_hidden_multiplier": ["0"]},
-                    # "e8,32x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["8,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e32,128x0.125,0.03125c4,16_nogen": {"moe_num_experts_list": ["32,128"], "moe_hidden_multipliers_list": ["0.125,0.03125"], "moe_router_top_ks_list": ["4,16"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e16,16,32x0.25,0.125,0.0625c2,2,4_nogen": {"moe_num_experts_list": ["16,16,32"], "moe_hidden_multipliers_list": ["0.25,0.125,0.0625"], "moe_router_top_ks_list": ["2,2,4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # # "e64,64,128x0.25,0.125,0.0625c2,2,4_nogen": {"moe_num_experts_list": ["64,64,128"], "moe_hidden_multipliers_list": ["0.25,0.125,0.0625"], "moe_router_top_ks_list": ["2,2,4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e128,128,256x0.125,0.0625,0.03125c4,4,8_nogen": {"moe_num_experts_list": ["128,128,256"], "moe_hidden_multipliers_list": ["0.125,0.0625,0.03125"], "moe_router_top_ks_list": ["4,4,8"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e16,64x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["16,64"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0.5"]},
                     # "e32,32x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["32,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e48,32x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["48,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0"]},
-                    # "e96,64x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["96,64"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0"]},
-                    # "e16,96x0.25,0.125c2,4_nogen": {"moe_num_experts_list": ["16,96"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e192,128x0.125,0.0625c4,8_nogen": {"moe_num_experts_list": ["192,128"], "moe_hidden_multipliers_list": ["0.125,0.0625"], "moe_router_top_ks_list": ["4,8"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e32,192x0.125,0.0625c4,8_nogen": {"moe_num_experts_list": ["32,192"], "moe_hidden_multipliers_list": ["0.125,0.0625"], "moe_router_top_ks_list": ["4,8"], "moe_generalist_hidden_multiplier": ["0"]},
                     
                     ### 0.5 generalist models
                     # ###
                     # "e3x0.5c1_0.5gen": {"moe_num_experts_list": ["3"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0.5"]},
-                    # "e6x0.25c2_0.5gen": {"moe_num_experts_list": ["6"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e6x0.25c2_0.5gen": {"moe_num_experts_list": ["6"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0.5"]}
                     # "e12x0.125c4_0.5gen": {"moe_num_experts_list": ["12"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0.5"]},
                     
                     # "e7x0.5c1_0.5gen": {"moe_num_experts_list": ["7"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0.5"]},
                     # "e14x0.25c2_0.5gen": {"moe_num_experts_list": ["14"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0.5"]},
                     # "e28x0.125c4_0.5gen": {"moe_num_experts_list": ["28"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0.5"]},
                     # "e7,14x0.25,0.125c1,2_0.5gen": {"moe_num_experts_list": ["7,14"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    ## "e15,30x0.125,0.0625c2,4_0.5gen": {"moe_num_experts_list": ["15,30"], "moe_hidden_multipliers_list": ["0.125,0.0625"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0.5"]},
                     
                     # "e15x0.5c1_0.5gen": {"moe_num_experts_list": ["15"], "moe_hidden_multipliers_list": ["0.5"], "moe_router_top_ks_list": ["1"], "moe_generalist_hidden_multiplier": ["0.5"]},
                     # "e30x0.25c2_0.5gen": {"moe_num_experts_list": ["30"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0.5"]},
                     # "e60x0.125c4_0.5gen": {"moe_num_experts_list": ["60"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0.5"]},
-                    # "e15,30x0.25,0.125c1,2_0.5gen": {"moe_num_experts_list": ["15,30"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0.5"]},
-                    
+                    # "e15,30x0.25,0.125c1,2_0.5gen": {"moe_num_experts_list": ["15,30"], "moe_hidden_multipliers_list": ["0.25,0.12 five models
+                    # ###
+                    # 'e3x' + str(epochs) + 'c' + str(top_k) + '_gen': {'num_experts': [3], 'hidden_multiplier': [hidden_multiplier], 'router_top_k': [top_k], 'generalist_hidden_multiplier': [generalist_hidden_multiplier]},
+                    # 'e6x' + str(epochs) + 'c' + str(top_k) + '_gen': {'num_experts': [6], 'hidden_multiplier': [hidden_multiplier], 'router_top_k': [top_k], 'generalist_hidden_multiplier': [generalist_hidden_multiplier]},
+                    # 'e12x' + str(epochs) + 'c' + str(top_k) + '_gen': {'num_experts': [12], 'hidden_multiplier': [hidden_multiplier], 'router_top_k': [top_k], 'generalist_hidden_multiplier': [generalist_hidden_multiplier]},
+
+                    ### 
                     # "e62x0.25c2_0.5gen": {"moe_num_experts_list": ["62"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    # "e124x0.125c4_0.5gen": {"moe_num_experts_list": ["124"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0.5"]},
                     # "e31,62x0.25,0.125c1,2_0.5gen": {"moe_num_experts_list": ["31,62"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["1,2"], "moe_generalist_hidden_multiplier": ["0.5"]},
+                    ## "e63,126x0.125,0.0625c2,4_0.5gen": {"moe_num_experts_list": ["63,126"], "moe_hidden_multipliers_list": ["0.125,0.0625"], "moe_router_top_ks_list": ["2,4"], "moe_generalist_hidden_multiplier": ["0.5"]}
                     
                     # "e124x0.125c4_0.5gen": {"moe_num_experts_list": ["124"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["4"], "moe_generalist_hidden_multiplier": ["0.5"]},
                     # ###
@@ -271,17 +313,22 @@ def main(
                     # ###
                     # "e7x0.25c3_0.25gen": {"moe_num_experts_list": ["7"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["3"], "moe_generalist_hidden_multiplier": ["0.25"]},
                     # "e14x0.125c6_0.25gen": {"moe_num_experts_list": ["14"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["6"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e28x0.0625c12_0.25gen": {"moe_num_experts_list": ["28"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["12"], "moe_generalist_hidden_multiplier": ["0.25"]},
                     
                     # "e15x0.25c3_0.25gen": {"moe_num_experts_list": ["15"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["3"], "moe_generalist_hidden_multiplier": ["0.25"]},
                     # "e30x0.125c6_0.25gen": {"moe_num_experts_list": ["30"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["6"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e60x0.0625c12_0.25gen": {"moe_num_experts_list": ["60"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["12"], "moe_generalist_hidden_multiplier": ["0.25"]},
                     # "e7,16x0.25,0.125c2,2_0.25gen": {"moe_num_experts_list": ["7,16"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,2"], "moe_generalist_hidden_multiplier": ["0.25"]},
                     
                     # "e31x0.25c3_0.25gen": {"moe_num_experts_list": ["31"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["3"], "moe_generalist_hidden_multiplier": ["0.25"]},
                     # "e62x0.125c6_0.25gen": {"moe_num_experts_list": ["62"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["6"], "moe_generalist_hidden_multiplier": ["0.25"]},
-                    # "e15,32x0.25,0.125c2,2_0.25gen": {"moe_num_experts_list": ["15,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,2"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e124x0.0625c12_0.25gen": {"moe_num_experts_list": ["124"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["12"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    # "e15,32x0.25,0.125c2,2_0.25gen": {"moe_num_experts_list": ["15,32"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,2"], "moe_generalist_hidden_multiplier": ["0.25"]},   
                     
                     # "e63x0.25c3_0.25gen": {"moe_num_experts_list": ["63"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["3"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    
                     # "e127x0.25c3_0.25gen": {"moe_num_experts_list": ["127"], "moe_hidden_multipliers_list": ["0.25"], "moe_router_top_ks_list": ["3"], "moe_generalist_hidden_multiplier": ["0.25"]},
+                    
                     # ###
                     # # "e31,64x0.25,0.125c2,2_0.25gen": {"moe_num_experts_list": ["31,64"], "moe_hidden_multipliers_list": ["0.25,0.125"], "moe_router_top_ks_list": ["2,2"], "moe_generalist_hidden_multiplier": ["0.25"]},
                     # ####  0.125 generalist model
@@ -290,13 +337,15 @@ def main(
                     # "e30x0.0625c14_0.125gen": {"moe_num_experts_list": ["30"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["14"], "moe_generalist_hidden_multiplier": ["0.125"]},
                     # "e60x0.03125c28_0.125gen": {"moe_num_experts_list": ["60"], "moe_hidden_multipliers_list": ["0.03125"], "moe_router_top_ks_list": ["28"], "moe_generalist_hidden_multiplier": ["0.125"]},
                     # "e31x0.125c7_0.125gen": {"moe_num_experts_list": ["31"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["7"], "moe_generalist_hidden_multiplier": ["0.125"]},
+                    # "e62x0.0625c14_0.125gen": {"moe_num_experts_list": ["62"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["14"], "moe_generalist_hidden_multiplier": ["0.125"]},
                     # "e63x0.125c7_0.125gen": {"moe_num_experts_list": ["63"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["7"], "moe_generalist_hidden_multiplier": ["0.125"]},
+                    # "e126x0.0625c14_0.125gen": {"moe_num_experts_list": ["126"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["14"], "moe_generalist_hidden_multiplier": ["0.125"]},
                     # "e127x0.125c7_0.125gen": {"moe_num_experts_list": ["127"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["7"], "moe_generalist_hidden_multiplier": ["0.125"]},
                     # ###
                     # "e256x0.125c7_0.125gen": {"moe_num_experts_list": ["256"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["7"], "moe_generalist_hidden_multiplier": ["0.125"]},
                     # "e512x0.125c7_0.125gen": {"moe_num_experts_list": ["512"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["7"], "moe_generalist_hidden_multiplier": ["0.125"]},
                     # "e1024x0.125c8_nogen": {"moe_num_experts_list": ["1024"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
-                    # "e4096x0.125c8_nogen": {"moe_num_experts_list": ["4096"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]},
+                    # "e4096x0.125c8_nogen": {"moe_num_experts_list": ["4096"], "moe_hidden_multipliers_list": ["0.125"], "moe_router_top_ks_list": ["8"], "moe_generalist_hidden_multiplier": ["0"]}
                     # "e4096x0.0625c16_nogen": {"moe_num_experts_list": ["4096"], "moe_hidden_multipliers_list": ["0.0625"], "moe_router_top_ks_list": ["16"], "moe_generalist_hidden_multiplier": ["0"]},
                     # "e128x0.015625c64_nogen": {"moe_num_experts_list": ["128"], "moe_hidden_multipliers_list": ["0.015625"], "moe_router_top_ks_list": ["64"], "moe_generalist_hidden_multiplier": ["0"]},
                     
@@ -354,6 +403,7 @@ def main(
                 },
             }
 
+            grid = dict_update(grid, overrides) if overrides else grid
             run_grid(
                 grid,
                 default_grid=dict_update(copy(MODEL_HP_DEFAULTS['all']), MODEL_HP_DEFAULTS.get(model, {})),
@@ -363,6 +413,7 @@ def main(
                 name_keys=SPECS.get("NAME_KEYS", []),
                 prefix=SPECS['TRAIN_COMMAND_PREFIX'],
                 gpus=SPECS['NUM_GPUS'],
+                gpu_type=(gpu_type if gpu_type else SPECS.get("GPU_TYPE", None)),
                 cpus=SPECS["NUM_CPUS"],
                 nodes=((SPECS['NUM_GPUS'] - 1) // 8 + 1),
                 node_exclude=None,
@@ -407,12 +458,12 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--slurm-partition', type=str)
     parser.add_argument('-t', '--job-time', type=str)
     parser.add_argument('--gpus', type=int)
+    parser.add_argument('--gpu-type', type=str)
     parser.add_argument('--cpus', type=int)
     parser.add_argument('--mem', type=str)
     parser.add_argument('-i', '--include-jobs-indices', type=str, default=None)
     parser.add_argument('-nf', '--no-filter', action='store_true', help="If set, will not filter out jobs that have already been run in the sweep. Useful for debugging.")
-    parser.add_argument('-or', '--override', )
-
+    parser.add_argument('-or', '--override-args', type=str, help="comma-separated list of key=value pairs to override values in the grid. For example, 'per_gpu_batch_size=16'.")
     args = parser.parse_args()
 
     main(
@@ -426,9 +477,11 @@ if __name__ == '__main__':
         partition=args.slurm_partition,
         job_time=args.job_time,
         gpus=args.gpus,
+        gpu_type=args.gpu_type,
         cpus=args.cpus,
         mem=args.mem,
         include_jobs_indices=([int(i) for i in args.include_jobs_indices.split(",")] if args.include_jobs_indices else None),
         filter_running=not args.no_filter,
         filter_succeeded=not args.no_filter,
+        overrides=args.override_args,
     )
